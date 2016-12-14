@@ -67,7 +67,7 @@ We don't wan;t to be holding too much information, preferably models instances a
 Why not Celery?
 ---------------
 
-`Celery<(http://www.celeryproject.org/>`_ is great! But it's sometimes an overkill. It's a full-on messaging implementation with all the bells and whistles
+`Celery <http://www.celeryproject.org/>`_ is great! But it's sometimes an overkill. It's a full-on messaging implementation with all the bells and whistles
 you need for sending tasks to some worker and *getting a result back*.
 
 Maintaining all that infrastructure just to send an email every couple of request seems a bit too much.
@@ -75,7 +75,7 @@ Maintaining all that infrastructure just to send an email every couple of reques
 Why not RQ?
 -----------
 
-`Python-RQ<http://python-rq.org>`_ is super. But it need's Redis. It's fine when your background work does not pile up.
+`Python-RQ <http://python-rq.org>`_ is super. But it need's Redis. It's fine when your background work does not pile up.
 Using Redis to hold gigabytes of task data is like burning money.
 
 
