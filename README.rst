@@ -34,6 +34,11 @@ With django models instances tasks will remember an instance primary key, load a
         def update_this_instance(self, *args, **kwargs):
             ...
 
+        def must_do_something(self):
+            ...
+            self.update_this_instance.queue()
+            ...
+        
 With plain old class object tasks will call it's classmethod. Normal functions are also supported.
 
 
@@ -49,6 +54,8 @@ With plain old class object tasks will call it's classmethod. Normal functions a
     def background_job(cls, with_this, and_that):
         ...
 
+    PocoClass.do_stuff_with_models.queue(10)
+    background_job.queue(foo, bar)
 
 Limited support for arguments serialization
 -------------------------------------------
