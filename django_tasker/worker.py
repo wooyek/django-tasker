@@ -50,9 +50,4 @@ def main(argv=sys.argv[1:]):  # pragma: no cover
 
 
 if __name__ == '__main__':  # pragma: no cover
-    from django.core.management import execute_from_command_line
-    execute_from_command_line(['', 'makemigrations'])
-    execute_from_command_line(['', 'migrate'])
-    from .models import TaskQueue
-    TaskQueue.get_default()
     main()

@@ -45,7 +45,7 @@ class TaskInfoDecoratorTests(TestCase):
         self.assertTrue(callable(foo.queue))
 
     def test_decorate_with_options(self):
-        @queueable(name="some")
+        @queueable(queue="some")
         def foo():
             return 1
 
@@ -54,13 +54,39 @@ class TaskInfoDecoratorTests(TestCase):
 
     @patch("django_tasker.models.TaskInfo.queue")
     def test_queue(self, queue):
-        @queueable(name="some")
+        @queueable(queue="some")
         def foo():
             return 1
 
         foo.queue(1, 2, a='b')
-        queue.assert_called_with(foo.__wrapped__, (1, 2), {'a': 'b'}, name='some')
+        queue.assert_called_with(foo.__wrapped__, (1, 2), {'a': 'b'}, queue='some')
 
+    def test_no_call_no_create_missing_queue(self):
+        @queueable(queue="some")
+        def foo():
+            return 1
+
+        self.assertIsNone(models.TaskQueue.objects.filter(name='some').first())
+
+    def test_create_missing_queue(self):
+        @queueable(queue="some")
+        def foo():
+            return 1
+
+        foo.queue(1, 2, a='b')
+        queue = models.TaskQueue.objects.filter(name='some').first()
+        self.assertIsNotNone(queue)
+        self.assertIsNone(queue.rate_limit)
+
+    def test_set_rate_limit(self):
+        @queueable(queue="some", rate_limit=12)
+        def foo():
+            return 1
+
+        foo.queue(1, 2, a='b')
+        queue = models.TaskQueue.objects.filter(name='some').first()
+        self.assertIsNotNone(queue)
+        self.assertEqual(12, queue.rate_limit)
 
 class TaskInfoInstanceTests(TestCase):
     def test_queue_on_model_instance(self):
@@ -82,9 +108,9 @@ class TaskInfoInstanceTests(TestCase):
             method.assert_called_with(stub, 1, 2, some='foo')
 
     def test_success_status(self):
-        queueable(models.TaskQueue.get_default).queue()  # Re-use existing model as decorator target
+        queueable(models.TaskQueue.throttle).queue()  # Re-use existing model as decorator target
         o = TaskInfo.objects.last()
-        with patch("django_tasker.models.TaskQueue.get_default") as method:
+        with patch("django_tasker.models.TaskQueue.throttle") as method:
             o.execute()
         self.assertIsNone(o.status_message)
         self.assertEqual(models.TaskStatus.success, o.status)
@@ -92,24 +118,24 @@ class TaskInfoInstanceTests(TestCase):
 
 class TaskInfoNonInstanceTests(TestCase):
     def test_queue_on_class_method(self):
-        queueable(models.TaskQueue.get_default).queue(1, 2, some='foo')  # Re-use existing model as decorator target
+        queueable(models.TaskQueue.throttle).queue(1, 2, some='foo')  # Re-use existing model as decorator target
         o = TaskInfo.objects.last()
-        self.assertEqual('django_tasker.models.TaskQueue.get_default', o.target.name)
+        self.assertEqual('django_tasker.models.TaskQueue.throttle', o.target.name)
         self.assertEqual(json.dumps({'args': [1, 2], 'kwargs': {'some': 'foo'}}), o.payload)
         self.assertIsNotNone(o.eta)
         self.assertEqual(models.TaskStatus.queued, o.status)
 
     def test_execute(self):
-        queueable(models.TaskQueue.get_default).queue(1, 2, some='foo')
+        queueable(models.TaskQueue.throttle).queue(1, 2, some='foo')
         o = TaskInfo.objects.first()
-        with patch("django_tasker.models.TaskQueue.get_default") as method:
+        with patch("django_tasker.models.TaskQueue.throttle") as method:
             o.execute()
             method.assert_called_with(models.TaskQueue, 1, 2, some='foo')
 
 
 class TaskInfoModuleFunction(TestCase):
     def test_queue(self):
-        @queueable(name="some")
+        @queueable(queue="some")
         def foo():
             return 1
 
@@ -154,7 +180,7 @@ class TaskQueueTests(TestCase):
 
     @patch("django_tasker.models.sleep")
     def test_throttle(self, sleep):
-        q = models.TaskQueue(max_tasks_per_hour=60)
+        q = models.TaskQueue(rate_limit=60)
         q.throttle(timedelta(seconds=1))
         sleep.assert_called_with(59)
 
@@ -166,14 +192,14 @@ class TaskQueueTests(TestCase):
 
     @patch("django_tasker.models.sleep")
     def test_reamaining_throttle_empty(self, sleep):
-        q = models.TaskQueue(max_tasks_per_hour=3600)
+        q = models.TaskQueue(rate_limit=3600)
         q.throttle(timedelta(seconds=2))
         self.assertFalse(sleep.called)
 
     @patch('django_tasker.models.TaskInfo.process_one')
     def test_process_batch(self, process_one):
         task = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now())
-        q = models.TaskQueue.get_default()
+        q = task.target.queue
         empty_run = q.process_batch()
         self.assertFalse(empty_run)
         process_one.assert_called_with(task.pk)
@@ -181,7 +207,7 @@ class TaskQueueTests(TestCase):
     @patch('django_tasker.models.TaskInfo.process_one')
     def test_process_future(self, process_one):
         task = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now() + timedelta(hours=1))
-        q = models.TaskQueue.get_default()
+        q = task.target.queue
         empty_run = q.process_batch()
         self.assertTrue(empty_run)
         self.assertFalse(process_one.called)
@@ -189,6 +215,6 @@ class TaskQueueTests(TestCase):
     @patch('django_tasker.models.TaskInfo.process_one')
     def test_process_not_ququed(self, process_one):
         task = factories.TaskInfoFactory(status=models.TaskStatus.created, eta=datetime.now())
-        q = models.TaskQueue.get_default()
+        q = task.target.queue
         q.process_batch()
         self.assertFalse(process_one.called)

@@ -100,21 +100,16 @@ class TaskWorker(object):
 
 class TaskQueue(models.Model):
     name = models.CharField(max_length=100, default='default', unique=True)
-    max_tasks_per_hour = models.PositiveSmallIntegerField(null=True, blank=True)
+    rate_limit = models.PositiveSmallIntegerField(null=True, blank=True, help_text='Maximum number of tasks to run per hour')
     status = models.PositiveSmallIntegerField(default=QueueStatus.enabled, choices=QueueStatus.choices())
 
     def __init__(self, *args, **kwargs):
         super(TaskQueue, self).__init__(*args, **kwargs)
-        if self.max_tasks_per_hour:
-            self.time_interval = timedelta(seconds=3600 / self.max_tasks_per_hour)
+        if self.rate_limit:
+            self.time_interval = timedelta(seconds=3600 / self.rate_limit)
 
     def __str__(self):
         return "TaskQueue:{}:{}.{}".format(self.pk, self.name, self.get_status_display())
-
-    @classmethod
-    def get_default(cls):
-        queue, created = cls.objects.get_or_create(name='default')
-        return queue
 
     def process_batch(self, limit=10):
         qry = TaskInfo.objects.filter(eta__lte=datetime.now(), status=TaskStatus.queued, target__queue=self)
@@ -128,7 +123,7 @@ class TaskQueue(models.Model):
         return empty_run
 
     def throttle(self, duration):
-        if self.max_tasks_per_hour:
+        if self.rate_limit:
             wait = self.time_interval - duration
             if wait > timedelta():
                 sleep(wait.seconds)
@@ -143,8 +138,8 @@ class TaskTarget(models.Model):
         return "TaskTarget:{}:{}".format(self.pk, self.name)
 
     @classmethod
-    def by_name(cls, name):
-        target, created = cls.objects.get_or_create(name=name, defaults={'queue': TaskQueue.get_default()})
+    def by_name(cls, name, defaults):
+        target, created = cls.objects.get_or_create(name=name, defaults=defaults)
         return target
 
 
@@ -176,7 +171,7 @@ class TaskInfo(models.Model):
         return "TaskInfo:{}:{}.{}".format(self.pk, self.target, self.get_status_display())
 
     @classmethod
-    def queue(cls, target, args, kwargs, **options):
+    def queue(cls, target, args, kwargs, queue='default', rate_limit=None):
 
         logging.debug("method.__name__: %s", target.__name__)
 
@@ -189,7 +184,11 @@ class TaskInfo(models.Model):
             payload['model_pk'] = getattr(target.__self__, 'pk')
         payload = json.dumps(payload) if payload else None
 
-        target = TaskTarget.by_name(target.__module__ + '.' + target.__qualname__)
+        target_name = target.__module__ + '.' + target.__qualname__
+        target = TaskTarget.objects.filter(name=target_name).first()
+        if target is None:
+            queue, created = TaskQueue.objects.get_or_create(name=queue, defaults={'rate_limit': rate_limit})
+            target, created = TaskTarget.objects.get_or_create(name=target_name, defaults={'queue': queue})
 
         eta = datetime.now()
         cls.objects.create(
