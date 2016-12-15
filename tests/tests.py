@@ -24,7 +24,8 @@ from mock import patch, MagicMock
 
 from django.test import TestCase
 
-from django_tasker.models import queueable, TaskInfo
+from django_tasker.models import TaskInfo
+from django_tasker.decoration import queueable
 from django_tasker import models
 from . import factories
 
@@ -61,7 +62,16 @@ class TaskInfoDecoratorTests(TestCase):
             return 1
 
         foo.queue(1, 2, a='b')
-        queue.assert_called_with(foo.__wrapped__, None, (1, 2), {'a': 'b'}, queue='some')
+        queue.assert_called_with(1, 2, a='b')
+
+    @patch("django_tasker.models.TaskInfo.setup")
+    def test_setup(self, setup):
+        @queueable(queue="some")
+        def foo():
+            return 1
+
+        foo.queue(1, 2, a='b')
+        setup.assert_called_with(foo.__wrapped__, None, queue='some')
 
     def test_no_call_no_create_missing_queue(self):
         @queueable(queue="some")
@@ -89,6 +99,7 @@ class TaskInfoDecoratorTests(TestCase):
         queue = models.TaskQueue.objects.filter(name='some').first()
         self.assertIsNotNone(queue)
         self.assertEqual(12, queue.rate_limit)
+
 
 class TaskInfoInstanceTests(TestCase):
     def test_queue_on_model_instance(self):
@@ -173,6 +184,27 @@ class TaskInfoTests(TestCase):
         models.TaskInfo.process_one(t.pk)
         self.assertEqual(1, execute.call_count)
 
+    @patch('django_tasker.models.TaskInfo.execute')
+    def test_process_one_retry(self, execute):
+        t = factories.TaskInfoFactory(status=models.TaskStatus.retry)
+        models.TaskInfo.process_one(t.pk)
+        execute.assert_called_with()
+        models.TaskInfo.process_one(t.pk)
+        self.assertEqual(1, execute.call_count)
+
+    def test_retry(self):
+        t = factories.TaskInfoFactory()
+        t._execute_call(1, None, None)
+        self.assertEqual(models.TaskStatus.retry, t.status)
+        self.assertEqual(1, t.retry_count)
+        t._execute_call(1, None, None)
+        self.assertEqual(2, t.retry_count)
+        self.assertEqual(models.TaskStatus.retry, t.status)
+        t.retry_count = 5
+        t._execute_call(1, None, None)
+        self.assertEqual(models.TaskStatus.error, t.status)
+
+
 # TODO: Test select_for_update
 # class TaskInfoTestsTx(TransactionTestCase):
 #     @patch('django_tasker.models.TaskInfo.execute')
@@ -238,5 +270,5 @@ class TaskQueueTests(TestCase):
 
     @override_settings(USE_TZ=True)
     def test_queue(self):
-        task = models.TaskInfo.queue(lambda: 1, None, None, None)
+        task = models.TaskInfo.setup(lambda: 1, None)
         self.assertTrue(is_aware(task.eta))

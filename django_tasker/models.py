@@ -2,23 +2,19 @@
 import json
 import logging
 import signal
-import types
 from datetime import datetime, timedelta
 from enum import IntEnum
 from threading import Thread
 from time import sleep
 
 import six
-import sys
-
 from django.conf import settings
-from django.core.exceptions import ObjectDoesNotExist
-from django.utils.translation import ugettext as __, ugettext_lazy as _
 from django.db import DatabaseError
 from django.db import models
 from django.db import transaction
 from django.utils import timezone
 from django.utils.module_loading import import_string
+from django.utils.translation import ugettext_lazy as _
 
 logging = logging.getLogger(__name__)
 
@@ -133,6 +129,7 @@ class TaskQueue(models.Model):
 class TaskTarget(models.Model):
     name = models.CharField(max_length=100, unique=True)
     queue = models.ForeignKey(TaskQueue)
+    max_retries = models.PositiveSmallIntegerField(default=5)
 
     def __str__(self):
         return "TaskTarget:{}:{}".format(self.pk, self.name)
@@ -142,10 +139,11 @@ class TaskStatus(ChoicesIntEnum):
     created = 0
     queued = 1
     eager = 2
-    busy = 3
-    success = 4
-    error = 5
-    corrupted = 6
+    retry = 3
+    busy = 4
+    success = 5
+    error = 6
+    corrupted = 7
 
 
 @six.python_2_unicode_compatible
@@ -153,7 +151,7 @@ class TaskInfo(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     executed = models.DateTimeField(blank=True, null=True)
     ts = models.DateTimeField(auto_now=True)
-    attempts = models.PositiveSmallIntegerField(default=0)
+    retry_count = models.PositiveSmallIntegerField(default=0)
     eta = models.DateTimeField(null=True, blank=True)
     target = models.ForeignKey(TaskTarget)
     payload = models.CharField(max_length=300, null=True, blank=True)
@@ -164,39 +162,40 @@ class TaskInfo(models.Model):
         index_together = ('id', 'status')
 
     def __str__(self):
-        return "TaskInfo:{}:{}:{}".format(self.pk, self.get_status_display(), self.target, )
+        return "TaskInfo:{}:{}:{}".format(self.pk, self.get_status_display(), self.target)
 
     @classmethod
-    def queue(cls, target, self, args, kwargs, queue='default', rate_limit=None):
-
+    def setup(cls, target, instance, queue='default', rate_limit=None, countdown=0, max_retries=5):
         logging.debug("method.__name__: %s", target.__name__)
-
-        payload = {}
-        if args:
-            payload['args'] = args
-        if kwargs:
-            payload['kwargs'] = kwargs
-        if isinstance(self, models.Model):
-            payload['model_pk'] = getattr(self, 'pk')
-        payload = json.dumps(payload) if payload else None
 
         target_name = target.__module__ + '.' + target.__qualname__
         target = TaskTarget.objects.filter(name=target_name).first()
         if target is None:
             queue, created = TaskQueue.objects.get_or_create(name=queue, defaults={'rate_limit': rate_limit})
-            target, created = TaskTarget.objects.get_or_create(name=target_name, defaults={'queue': queue})
+            target, created = TaskTarget.objects.get_or_create(name=target_name, defaults={'queue': queue, 'max_retries': max_retries})
 
-        eta = timezone.now()
+        eta = timezone.now() + timedelta(countdown)
         eager = getattr(settings, 'TASKER_ALWAYS_EAGER', None)
-        task = cls.objects.create(
-            target=target,
-            payload=payload,
-            eta=eta,
-            status=TaskStatus.eager if eager else TaskStatus.queued,
-        )
-        if eager:
-            task.execute()
+        task = cls(target=target, eta=eta, status=TaskStatus.eager if eager else TaskStatus.queued, )
+        task.instance = instance
         return task
+
+    def queue(self, *args, **kwargs):
+        payload = {}
+        if args:
+            payload['args'] = args
+        if kwargs:
+            payload['kwargs'] = kwargs
+        if isinstance(self.instance, models.Model):
+            payload['model_pk'] = getattr(self.instance, 'pk')
+
+        self.payload = json.dumps(payload) if payload else None
+        self.save()
+
+        if self.status == TaskStatus.eager:
+            self.execute()
+
+        return self
 
     def execute(self):
         try:
@@ -212,6 +211,8 @@ class TaskInfo(models.Model):
             with transaction.atomic():
                 target(*args, **kwargs)
         except RetryLaterException as ex:
+            # This is a task controlled retry, it does not count toward max_retries
+            # if tasks wants to retry indefinitely we will not object
             if getattr(settings, 'TASKER_ALWAYS_EAGER', None):
                 logging.error("Failing permanently on task in eager mode", exc_info=ex)
                 # there is no point in retrying this in eager mode, it fail each time
@@ -221,7 +222,7 @@ class TaskInfo(models.Model):
             self.save()
 
         except Exception as exc:
-            logging.warning("{} execution failed".format(str(self)))
+            logging.error("{} execution failed".format(str(self)), exc_info=True)
             self.error(self.get_error_status_message(exc))
         else:
             self.success()
@@ -240,7 +241,7 @@ class TaskInfo(models.Model):
     def process_one(cls, pk):
         try:
             with transaction.atomic():
-                task = cls.objects.select_for_update(nowait=True).filter(pk=pk, status=TaskStatus.queued).first()
+                task = cls.objects.select_for_update(nowait=True).filter(pk=pk, status__in=(TaskStatus.queued, TaskStatus.retry)).first()
                 if task is None:
                     return
                 task.status = TaskStatus.busy
@@ -255,13 +256,18 @@ class TaskInfo(models.Model):
     def success(self):
         self.status = TaskStatus.success
         self.executed = timezone.now()
-        self.attempts += 1
         self.save()
 
     def error(self, status_message, status=TaskStatus.error):
         self.status = status
         self.status_message = status_message
-        self.attempts += 1
+
+        if self.retry_count < self.target.max_retries:
+            self.status = TaskStatus.retry
+            countdown = get_retry_countdown(self.retry_count)
+            self.eta = timezone.now() + timedelta(seconds=countdown)
+
+        self.retry_count += 1
         self.save()
 
     def get_error_status_message(self, ex):
@@ -273,6 +279,7 @@ def get_retry_countdown(retries):
         0: 30,
         1: 60,
         2: 300,
+        3: 1200,
     }.get(retries, 3600)
 
 
@@ -285,41 +292,3 @@ class RetryLaterException(Exception):
         return "RetryLaterException: countdown={}, {}".format(self.countdown, self.message)
 
 
-class MethodProxy(object):
-    def __init__(self, function, options):
-        self.options = options
-        self.__wrapped__ = function
-
-    def __call__(self, *args, **kwargs):
-        return self.__wrapped__(*args, **kwargs)
-
-    def __get__(self, instance, owner_type):
-        return BoundMethodProxy(self.__wrapped__, self.options, instance)
-
-    def queue(self, *args, **kwargs):
-        return TaskInfo.queue(self.__wrapped__, None, args, kwargs, **self.options)
-
-
-class BoundMethodProxy(object):
-    def __init__(self, function, options, instance):
-        self.options = options
-        self.function = function
-        self.instance = instance
-
-    def __call__(self, *args, **kwargs):
-        return self.function(self.instance, *args, **kwargs)
-
-    def queue(self, *args, **kwargs):
-        return TaskInfo.queue(self.function, self.instance, args, kwargs, **self.options)
-
-
-def queueable(*args, **options):
-    def decorator(func):
-        if hasattr(func, '__self__'):
-            return BoundMethodProxy(func, options, func.__self__)
-        else:
-            return MethodProxy(func, options)
-
-    if len(args) == 1 and callable(args[0]):
-        return decorator(args[0])
-    return decorator
