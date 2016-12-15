@@ -62,17 +62,17 @@ def sync(ctx):
     ctx.run("git checkout master")
     ctx.run("git pull origin master --verbose")
 
-    ctx.run("git checkout develop")
-    ctx.run("git merge master --verbose")
-
     ctx.run("git checkout master")
     ctx.run("git merge develop --verbose")
 
-    ctx.run("git push origin develop --verbose")
-    ctx.run("git push origin master --verbose")
-
+    ctx.run("git checkout develop")
+    ctx.run("git merge master --verbose")
 
 @task(sync, bump, upload_pypi)
 def release(ctx):
+    ctx.run("git checkout master")
+    ctx.run("git merge develop --verbose")
     ctx.run("git checkout develop")
-    pass
+
+    ctx.run("git push origin develop --verbose")
+    ctx.run("git push origin master --verbose")
