@@ -18,6 +18,8 @@ from django.core.mail import send_mail
 from django.core.management import call_command, execute_from_command_line
 from django.db import transaction
 from django.test.testcases import TransactionTestCase
+from django.test.utils import modify_settings, override_settings
+from django.utils.timezone import is_naive, is_aware
 from mock import patch, MagicMock
 
 from django.test import TestCase
@@ -59,7 +61,7 @@ class TaskInfoDecoratorTests(TestCase):
             return 1
 
         foo.queue(1, 2, a='b')
-        queue.assert_called_with(foo.__wrapped__, (1, 2), {'a': 'b'}, queue='some')
+        queue.assert_called_with(foo.__wrapped__, None, (1, 2), {'a': 'b'}, queue='some')
 
     def test_no_call_no_create_missing_queue(self):
         @queueable(queue="some")
@@ -99,13 +101,21 @@ class TaskInfoInstanceTests(TestCase):
         self.assertIsNotNone(o.eta)
         self.assertEqual(models.TaskStatus.queued, o.status)
 
-    def test_execute(self):
+    def test_execute_arguments(self):
         stub = models.TaskQueue.objects.create()
         queueable(stub.process_batch).queue(1, 2, some='foo')  # Re-use existing model as decorator target
         o = TaskInfo.objects.last()
         with patch("django_tasker.models.TaskQueue.process_batch") as method:
             o.execute()
-            method.assert_called_with(stub, 1, 2, some='foo')
+            method.assert_called_with(1, 2, some='foo')
+
+    def test_execute_smoke(self):
+        stub = models.TaskQueue.objects.create()
+        queueable(stub.throttle).queue('ignored but needed by test')  # Re-use existing model as decorator target
+        o = TaskInfo.objects.last()
+        o.execute()
+        self.assertEqual(None, o.status_message)
+        self.assertEqual(o.status, models.TaskStatus.success)
 
     def test_success_status(self):
         queueable(models.TaskQueue.throttle).queue()  # Re-use existing model as decorator target
@@ -130,7 +140,14 @@ class TaskInfoNonInstanceTests(TestCase):
         o = TaskInfo.objects.first()
         with patch("django_tasker.models.TaskQueue.throttle") as method:
             o.execute()
-            method.assert_called_with(models.TaskQueue, 1, 2, some='foo')
+            method.assert_called_with(1, 2, some='foo')
+
+    def test_execute_smoke(self):
+        queueable(models.TaskInfo.process_one).queue(213412)  # Re-use existing model as decorator target
+        o = TaskInfo.objects.last()
+        o.execute()
+        self.assertEqual(None, o.status_message)
+        self.assertEqual(o.status, models.TaskStatus.success)
 
 
 class TaskInfoModuleFunction(TestCase):
@@ -218,3 +235,8 @@ class TaskQueueTests(TestCase):
         q = task.target.queue
         q.process_batch()
         self.assertFalse(process_one.called)
+
+    @override_settings(USE_TZ=True)
+    def test_queue(self):
+        task = models.TaskInfo.queue(lambda: 1, None, None, None)
+        self.assertTrue(is_aware(task.eta))

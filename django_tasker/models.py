@@ -137,16 +137,12 @@ class TaskTarget(models.Model):
     def __str__(self):
         return "TaskTarget:{}:{}".format(self.pk, self.name)
 
-    @classmethod
-    def by_name(cls, name, defaults):
-        target, created = cls.objects.get_or_create(name=name, defaults=defaults)
-        return target
-
 
 class TaskStatus(ChoicesIntEnum):
     created = 0
     queued = 1
-    busy = 2
+    eager = 2
+    busy = 3
     success = 4
     error = 5
     corrupted = 6
@@ -168,10 +164,10 @@ class TaskInfo(models.Model):
         index_together = ('id', 'status')
 
     def __str__(self):
-        return "TaskInfo:{}:{}.{}".format(self.pk, self.target, self.get_status_display())
+        return "TaskInfo:{}:{}:{}".format(self.pk, self.get_status_display(), self.target, )
 
     @classmethod
-    def queue(cls, target, args, kwargs, queue='default', rate_limit=None):
+    def queue(cls, target, self, args, kwargs, queue='default', rate_limit=None):
 
         logging.debug("method.__name__: %s", target.__name__)
 
@@ -180,8 +176,8 @@ class TaskInfo(models.Model):
             payload['args'] = args
         if kwargs:
             payload['kwargs'] = kwargs
-        if isinstance(target, types.MethodType) and isinstance(target.__self__, models.Model):
-            payload['model_pk'] = getattr(target.__self__, 'pk')
+        if isinstance(self, models.Model):
+            payload['model_pk'] = getattr(self, 'pk')
         payload = json.dumps(payload) if payload else None
 
         target_name = target.__module__ + '.' + target.__qualname__
@@ -190,29 +186,33 @@ class TaskInfo(models.Model):
             queue, created = TaskQueue.objects.get_or_create(name=queue, defaults={'rate_limit': rate_limit})
             target, created = TaskTarget.objects.get_or_create(name=target_name, defaults={'queue': queue})
 
-        eta = datetime.now()
-        cls.objects.create(
+        eta = timezone.now()
+        eager = getattr(settings, 'TASKER_ALWAYS_EAGER', None)
+        task = cls.objects.create(
             target=target,
             payload=payload,
             eta=eta,
-            status=TaskStatus.queued,
+            status=TaskStatus.eager if eager else TaskStatus.queued,
         )
+        if eager:
+            task.execute()
+        return task
 
     def execute(self):
         try:
-            where, target, args, kwargs = self.prepare_call()
-            self._execute_call(where, target, args, kwargs)
+            target, args, kwargs = self.prepare_call()
+            self._execute_call(target, args, kwargs)
         except Exception as ex:
             logging.warning("{} execution failed".format(str(self)), exc_info=ex)
             self.error(self.get_error_status_message(ex), status=TaskStatus.corrupted)
 
-    def _execute_call(self, where, target, args, kwargs):
+    def _execute_call(self, target, args, kwargs):
         logging.info("Executing task:%s", self.target)
         try:
             with transaction.atomic():
-                target(where, *args, **kwargs)
+                target(*args, **kwargs)
         except RetryLaterException as ex:
-            if settings.TASKER_ALWAYS_EAGER:
+            if getattr(settings, 'TASKER_ALWAYS_EAGER', None):
                 logging.error("Failing permanently on task in eager mode", exc_info=ex)
                 # there is no point in retrying this in eager mode, it fail each time
                 return
@@ -234,7 +234,7 @@ class TaskInfo(models.Model):
         if model_pk:
             where = where.objects.get(pk=model_pk)
         target = getattr(where, target)
-        return where, target, args, kwargs
+        return target, args, kwargs
 
     @classmethod
     def process_one(cls, pk):
@@ -285,17 +285,40 @@ class RetryLaterException(Exception):
         return "RetryLaterException: countdown={}, {}".format(self.countdown, self.message)
 
 
+class MethodProxy(object):
+    def __init__(self, function, options):
+        self.options = options
+        self.__wrapped__ = function
+
+    def __call__(self, *args, **kwargs):
+        return self.__wrapped__(*args, **kwargs)
+
+    def __get__(self, instance, owner_type):
+        return BoundMethodProxy(self.__wrapped__, self.options, instance)
+
+    def queue(self, *args, **kwargs):
+        return TaskInfo.queue(self.__wrapped__, None, args, kwargs, **self.options)
+
+
+class BoundMethodProxy(object):
+    def __init__(self, function, options, instance):
+        self.options = options
+        self.function = function
+        self.instance = instance
+
+    def __call__(self, *args, **kwargs):
+        return self.function(self.instance, *args, **kwargs)
+
+    def queue(self, *args, **kwargs):
+        return TaskInfo.queue(self.function, self.instance, args, kwargs, **self.options)
+
+
 def queueable(*args, **options):
     def decorator(func):
-        @six.wraps(func)
-        def proxy(*args, **kwargs):
-            return func(*args, **kwargs)
-
-        def queue(*args, **kwargs):
-            return TaskInfo.queue(func, args, kwargs, **options)
-
-        proxy.queue = queue
-        return proxy
+        if hasattr(func, '__self__'):
+            return BoundMethodProxy(func, options, func.__self__)
+        else:
+            return MethodProxy(func, options)
 
     if len(args) == 1 and callable(args[0]):
         return decorator(args[0])
