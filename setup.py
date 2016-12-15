@@ -50,7 +50,7 @@ setup_kwargs = {
     'test_suite': 'runtests.runtests',
     'entry_points': {
         'console_scripts': [
-            'django_tasker = django_tasker.worker:run',
+            'django_tasker = django_tasker.worker:main',
         ],
     },
 }
