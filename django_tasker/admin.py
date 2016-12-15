@@ -7,8 +7,8 @@ from django_tasker import models
 
 @register(models.TaskInfo)
 class TaskInfoAdmin(admin.ModelAdmin):
-    list_display = ('ts', 'target_model', 'target_pk', 'target_method', 'status', 'attempts', 'created', 'executed')
-    list_filter = ('status', 'target_model', 'target_method')
+    list_display = ('ts', 'target', 'status', 'retry_count', 'created', 'executed')
+    list_filter = ('status', 'target',)
     search_fields = ('target_model', 'target_func')
     actions = ['delete_all', 'delete_completed']
 
@@ -31,8 +31,8 @@ class TaskInfoAdmin(admin.ModelAdmin):
 
 @register(models.TaskQueue)
 class TaskQueueAdmin(admin.ModelAdmin):
-    list_display = ('name', 'status', 'max_tasks_per_hour')
-    list_filter = ('name', 'status', 'max_tasks_per_hour')
+    list_display = ('name', 'status', 'rate_limit')
+    list_filter = ('name', 'status', 'rate_limit')
     search_fields = ('name',)
     actions = ['disable']
 
@@ -45,7 +45,7 @@ class TaskQueueAdmin(admin.ModelAdmin):
 
 
 @register(models.TaskTarget)
-class TaskQueueAdmin(admin.ModelAdmin):
-    list_display = ('name', 'queue')
-    list_filter = ('name', 'queue')
+class TaskTargetAdmin(admin.ModelAdmin):
+    list_display = ('name', 'queue', 'max_retries')
+    list_filter = ('name', 'queue', 'max_retries')
     search_fields = ('name',)

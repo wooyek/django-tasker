@@ -16,6 +16,8 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import ugettext_lazy as _
 
+from django_tasker.exceptions import RetryLaterException
+
 logging = logging.getLogger(__name__)
 
 
@@ -217,7 +219,7 @@ class TaskInfo(models.Model):
                 logging.error("Failing permanently on task in eager mode", exc_info=ex)
                 # there is no point in retrying this in eager mode, it fail each time
                 return
-            logging.warning(exc_info=ex)
+            logging.warning("Retrying on task request", exc_info=ex)
             self.eta = datetime.now() + timedelta(seconds=ex.countdown)
             self.save()
 
@@ -270,6 +272,7 @@ class TaskInfo(models.Model):
         self.retry_count += 1
         self.save()
 
+    # noinspection PyMethodMayBeStatic
     def get_error_status_message(self, ex):
         return str(ex)
 
@@ -281,14 +284,3 @@ def get_retry_countdown(retries):
         2: 300,
         3: 1200,
     }.get(retries, 3600)
-
-
-class RetryLaterException(Exception):
-    def __init__(self, countdown, message):
-        self.message = message
-        self.countdown = countdown
-
-    def __str__(self):
-        return "RetryLaterException: countdown={}, {}".format(self.countdown, self.message)
-
-
