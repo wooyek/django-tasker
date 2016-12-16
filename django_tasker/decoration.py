@@ -1,4 +1,6 @@
 # coding=utf-8
+import logging
+
 from django_tasker.models import TaskInfo
 
 
@@ -11,6 +13,9 @@ class BaseProxy(object):
         self.options = options
         self.__wrapped__ = function
         self.instance = instance
+        self.__qualname__ = function.__qualname__
+        self.__module__ = function.__module__
+        self.__name__ = function.__name__
 
     def queue(self, *args, **kwargs):
         return self.setup_task().queue(*args, **kwargs)
@@ -28,10 +33,21 @@ class MethodProxy(BaseProxy):
         return self.__wrapped__(*args, **kwargs)
 
     def __get__(self, instance, owner_type):
+        logging.debug("owner_type: %s", owner_type)
+        logging.debug("instance: %s", instance)
+
+        if instance is None:
+            return self
+
         return BoundMethodProxy(self.__wrapped__, self.options, instance)
 
 
 class BoundMethodProxy(BaseProxy):
+
+    def __init__(self, function, options, instance=None):
+        assert instance
+        super(BoundMethodProxy, self).__init__(function, options, instance)
+
     def __call__(self, *args, **kwargs):
         return self.__wrapped__(self.instance, *args, **kwargs)
 

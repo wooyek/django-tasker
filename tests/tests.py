@@ -204,6 +204,41 @@ class TaskInfoTests(TestCase):
         t._execute_call(1, None, None)
         self.assertEqual(models.TaskStatus.error, t.status)
 
+    def test_get_target_name_from_subclass_instance(self):
+        from tests.app.models import SomeModel
+        t = SomeModel.objects.create().process_me.queue()
+        self.assertEqual('tests.app.models.SomeModel.process_me', t.target.name)
+
+    def test_get_target_name_subclass_instance(self):
+        from tests.app.models import SomeModel
+        v = models.TaskInfo.get_target_name(SomeModel.process_me, SomeModel())
+        self.assertEqual('tests.app.models.SomeModel.process_me', v)
+
+    def test_get_target_name_subclass_instance2(self):
+        from tests.app.models import SomeModel
+        v = models.TaskInfo.get_target_name(SomeModel().process_me, None)
+        self.assertEqual('tests.app.models.BaseModel.process_me', v)
+
+    def test_get_target_name_subclass_class_method(self):
+        from tests.app.models import SomeModel
+        v = models.TaskInfo.get_target_name(SomeModel.process_me, None)
+        self.assertEqual('tests.app.models.BaseModel.process_me', v)
+
+    def test_get_target_name_subclass_instance_plain(self):
+        from tests.app.models import SomeModel
+        v = models.TaskInfo.get_target_name(SomeModel.no_queable, SomeModel())
+        self.assertEqual('tests.app.models.SomeModel.no_queable', v)
+
+    def test_get_target_name_subclass_instance2_plain(self):
+        from tests.app.models import SomeModel
+        v = models.TaskInfo.get_target_name(SomeModel().no_queable, None)
+        self.assertEqual('tests.app.models.SomeModel.no_queable', v)
+
+    def test_get_target_name_subclass_class_method_plain(self):
+        from tests.app.models import SomeModel
+        v = models.TaskInfo.get_target_name(SomeModel.no_queable, None)
+        # Unbound (or just) functions don't know where there where taken from
+        self.assertEqual('tests.app.models.BaseModel.no_queable', v)
 
 # TODO: Test select_for_update
 # class TaskInfoTestsTx(TransactionTestCase):
@@ -272,3 +307,37 @@ class TaskQueueTests(TestCase):
     def test_queue(self):
         task = models.TaskInfo.setup(lambda: 1, None)
         self.assertTrue(is_aware(task.eta))
+
+
+class TestAppTests(TestCase):
+
+    def test_queue_base_method_runs_on_subclass(self):
+        from tests.app.models import SomeModel
+        o = SomeModel.objects.create()
+        o.process_me.setup_task(max_retries=0).queue()
+        t = models.TaskInfo.objects.first()
+        t.execute()
+        self.assertEqual(None, t.status_message)
+        self.assertEqual(models.TaskStatus.success, t.status)
+
+    def test_do_stuff(self):
+        from tests.app.models import SomeModel
+        o = SomeModel.objects.create()
+        o.do_stuff.setup_task(max_retries=0).queue()
+        t = models.TaskInfo.objects.first()
+        t.execute()
+        self.assertEqual(None, t.status_message)
+        self.assertEqual(models.TaskStatus.success, t.status)
+
+    def test_do_stuff_fails_not_saved_instance(self):
+        from tests.app.models import SomeModel
+        o = SomeModel()
+        self.assertRaises(AssertionError, o.do_stuff.queue)
+
+    def test_do_whole_other_stuff(self):
+        from tests.app.models import SomeModel
+        SomeModel.do_whole_other_stuff.setup_task(max_retries=0).queue()
+        t = models.TaskInfo.objects.first()
+        t.execute()
+        self.assertEqual(None, t.status_message)
+        self.assertEqual(models.TaskStatus.success, t.status)

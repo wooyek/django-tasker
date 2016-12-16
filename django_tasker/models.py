@@ -66,7 +66,10 @@ class TaskWorker(object):
     @classmethod
     def run_queues(cls, queue_names):
         logging.info("Running workers for queues: %s if they are enabled", queue_names)
-        workers = [cls(q) for q in TaskQueue.objects.filter(name__in=queue_names, status=QueueStatus.enabled)]
+        qry = TaskQueue.objects.filter(status=QueueStatus.enabled)
+        if queue_names:
+            qry = qry.filter(name__in=queue_names)
+        workers = [cls(q) for q in qry]
         threads = [Thread(target=w) for w in workers]
         for t in threads:
             t.start()
@@ -110,7 +113,7 @@ class TaskQueue(models.Model):
         return "TaskQueue:{}:{}.{}".format(self.pk, self.name, self.get_status_display())
 
     def process_batch(self, limit=10):
-        qry = TaskInfo.objects.filter(eta__lte=datetime.now(), status=TaskStatus.queued, target__queue=self)
+        qry = TaskInfo.objects.filter(eta__lte=datetime.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target__queue=self)
         batch = qry.values_list('id', flat=True)[:limit]
         empty_run = True
         for pk in batch:
@@ -169,8 +172,7 @@ class TaskInfo(models.Model):
     @classmethod
     def setup(cls, target, instance, queue='default', rate_limit=None, countdown=0, max_retries=5):
         logging.debug("method.__name__: %s", target.__name__)
-
-        target_name = target.__module__ + '.' + target.__qualname__
+        target_name = cls.get_target_name(target, instance)
         target = TaskTarget.objects.filter(name=target_name).first()
         if target is None:
             queue, created = TaskQueue.objects.get_or_create(name=queue, defaults={'rate_limit': rate_limit})
@@ -182,6 +184,15 @@ class TaskInfo(models.Model):
         task.instance = instance
         return task
 
+    @staticmethod
+    def get_target_name(target, instance):
+        instance = instance or getattr(target, '__self__', None)
+        if instance:
+            target_name = '.'.join((instance.__module__, instance.__class__.__name__, target.__name__))
+        else:
+            target_name = '.'.join((target.__module__, target.__qualname__))
+        return target_name
+
     def queue(self, *args, **kwargs):
         payload = {}
         if args:
@@ -189,7 +200,10 @@ class TaskInfo(models.Model):
         if kwargs:
             payload['kwargs'] = kwargs
         if isinstance(self.instance, models.Model):
-            payload['model_pk'] = getattr(self.instance, 'pk')
+            assert hasattr(self.instance, 'pk'), "Model instance must have a 'pk' attribute, so task can store it for retrieval before execution"
+            pk = getattr(self.instance, 'pk')
+            assert pk is not None, "Model instance must be saved and have a 'pk' value, before it's method can be queued. Alternatively you can use queue a classmethod without pk set"
+            payload['pk'] = pk
 
         self.payload = json.dumps(payload) if payload else None
         self.save()
@@ -200,6 +214,7 @@ class TaskInfo(models.Model):
         return self
 
     def execute(self):
+        logging.info("Executing task:%s", self.target)
         try:
             target, args, kwargs = self.prepare_call()
             self._execute_call(target, args, kwargs)
@@ -208,7 +223,6 @@ class TaskInfo(models.Model):
             self.error(self.get_error_status_message(ex), status=TaskStatus.corrupted)
 
     def _execute_call(self, target, args, kwargs):
-        logging.info("Executing task:%s", self.target)
         try:
             with transaction.atomic():
                 target(*args, **kwargs)
@@ -220,7 +234,7 @@ class TaskInfo(models.Model):
                 # there is no point in retrying this in eager mode, it fail each time
                 return
             logging.warning("Retrying on task request", exc_info=ex)
-            self.eta = datetime.now() + timedelta(seconds=ex.countdown)
+            self.eta = timezone.now() + timedelta(seconds=ex.countdown)
             self.save()
 
         except Exception as exc:
@@ -231,11 +245,13 @@ class TaskInfo(models.Model):
 
     def prepare_call(self):
         payload = json.loads(self.payload) if self.payload else {}
-        args, kwargs, model_pk = payload.get('args', []), payload.get('kwargs', {}), payload.get('model_pk', None)
+        args = payload.get('args', [])
+        kwargs = payload.get('kwargs', {})
+        pk = payload.get('pk', None)
         where, target = self.target.name.rsplit('.', 1)
         where = import_string(where)
-        if model_pk:
-            where = where.objects.get(pk=model_pk)
+        if pk:
+            where = where.objects.get(pk=pk)
         target = getattr(where, target)
         return target, args, kwargs
 

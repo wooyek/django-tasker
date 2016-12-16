@@ -7,7 +7,7 @@ from django_tasker import models
 
 @register(models.TaskInfo)
 class TaskInfoAdmin(admin.ModelAdmin):
-    list_display = ('ts', 'target', 'status', 'retry_count', 'created', 'executed')
+    list_display = ('ts', 'target', 'status', 'retry_count', 'created', 'eta', 'executed')
     list_filter = ('status', 'target',)
     search_fields = ('target_model', 'target_func')
     actions = ['delete_all', 'delete_completed']

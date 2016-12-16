@@ -25,7 +25,8 @@ version = "0.2.15"
 setup_kwargs = {
     'name': "django-tasker",
     'version': version,
-    'packages': find_packages(exclude=['tests', 'example']),
+    # 'packages': find_packages(exclude=['tests', 'example']),
+    'packages': ['django_tasker'],
     'install_requires': [str(r.req) for r in install_requires],
     'tests_require': [str(r.req) for r in tests_require],
     'author': "Janusz Skonieczny",
