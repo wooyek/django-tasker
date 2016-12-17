@@ -18,6 +18,9 @@ https://github.com/wooyek/django-tasker
 .. image:: https://img.shields.io/pypi/dm/django-tasker.svg?maxAge=2592000
     :target: https://pypi.python.org/pypi/django-tasker/
 
+.. image:: https://img.shields.io/pypi/pyversions/django-tasker.svg
+    :target: https://pypi.python.org/pypi/django-tasker/
+
 Usage
 -----
 
