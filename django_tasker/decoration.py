@@ -54,7 +54,7 @@ class BoundMethodProxy(BaseProxy):
 
 def queueable(*args, **options):
     def decorator(func):
-        if hasattr(func, '__self__'):
+        if hasattr(func, '__self__') and not isinstance(func.__self__, type):
             return BoundMethodProxy(func, options, func.__self__)
         else:
             return MethodProxy(func, options)

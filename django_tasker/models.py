@@ -187,7 +187,8 @@ class TaskInfo(models.Model):
     @staticmethod
     def get_target_name(target, instance):
         instance = instance or getattr(target, '__self__', None)
-        if instance:
+        # class methods will have __self__ set with class
+        if instance and not isinstance(instance, type):
             target_name = '.'.join((instance.__module__, instance.__class__.__name__, target.__name__))
         else:
             target_name = '.'.join((target.__module__, target.__qualname__))

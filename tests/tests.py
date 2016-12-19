@@ -107,8 +107,8 @@ class TaskInfoInstanceTests(TestCase):
         queueable(stub.process_batch).queue(1, 2, some='foo')  # Re-use existing model as decorator target
         o = TaskInfo.objects.last()
         self.assertEqual('django_tasker.models.TaskQueue.process_batch', o.target.name)
-        self.assertEqual(stub.pk, json.loads(o.payload)['model_pk'])
-        self.assertEqual(json.dumps({'args': [1, 2], 'kwargs': {'some': 'foo'}, "model_pk": 1}), o.payload)
+        self.assertEqual(stub.pk, json.loads(o.payload)['pk'])
+        self.assertEqual(json.dumps({'args': [1, 2], 'kwargs': {'some': 'foo'}, "pk": 1}), o.payload)
         self.assertIsNotNone(o.eta)
         self.assertEqual(models.TaskStatus.queued, o.status)
 
@@ -154,7 +154,8 @@ class TaskInfoNonInstanceTests(TestCase):
             method.assert_called_with(1, 2, some='foo')
 
     def test_execute_smoke(self):
-        queueable(models.TaskInfo.process_one).queue(213412)  # Re-use existing model as decorator target
+        t = queueable(models.TaskInfo.process_one).queue(213412)  # Re-use existing model as decorator target
+        self.assertEqual('django_tasker.models.TaskInfo.process_one', t.target.name)
         o = TaskInfo.objects.last()
         o.execute()
         self.assertEqual(None, o.status_message)
