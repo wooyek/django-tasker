@@ -19,11 +19,13 @@ from django.core.management import call_command, execute_from_command_line
 from django.db import transaction
 from django.test.testcases import TransactionTestCase
 from django.test.utils import modify_settings, override_settings
+from django.utils import timezone
 from django.utils.timezone import is_naive, is_aware
 from mock import patch, MagicMock
 
 from django.test import TestCase
 
+from django_tasker import exceptions
 from django_tasker.models import TaskInfo
 from django_tasker.decoration import queueable
 from django_tasker import models
@@ -389,3 +391,25 @@ class TestWorker(TestCase):
         worker.run_once()
         on_error_back_off.assert_called_with(None, ex)
 
+
+class RetryLaterExceptionTests(TestCase):
+
+    @override_settings(USE_TZ=True)
+    def test_naive_eta_tz(self):
+        ex = exceptions.RetryLaterException('', eta=datetime.now())
+        self.assertIsNotNone(ex.eta.tzinfo)
+
+    @override_settings(USE_TZ=True)
+    def test_aware_eta_tz(self):
+        ex = exceptions.RetryLaterException('', eta=timezone.now())
+        self.assertIsNotNone(ex.eta.tzinfo)
+
+    @override_settings(USE_TZ=False)
+    def test_naive_eta_no_tz(self):
+        ex = exceptions.RetryLaterException('', eta=datetime.now())
+        self.assertIsNone(ex.eta.tzinfo)
+
+    @override_settings(USE_TZ=False)
+    def test_aware_eta_no_tz(self):
+        ex = exceptions.RetryLaterException('', eta=timezone.now())
+        self.assertIsNone(ex.eta.tzinfo)
