@@ -37,11 +37,16 @@ class QueueStatus(ChoicesIntEnum):
     enabled = 0
     disabled = 1
 
+BACK_OFF_BASE_SECONDS = 60
+BACK_OFF_MAX_SECONDS = 86400
+BACK_OFF_MULTIPLIER = 4
+
 
 class TaskWorker(object):
     def __init__(self, queue):
         self.queue = queue
         self._stop_requested = False
+        self.back_off_seconds = None
 
     def __call__(self):
         logging.info("Worker booting for queue: %s", self.queue)
@@ -49,16 +54,19 @@ class TaskWorker(object):
             if self._stop_requested:
                 logging.info('Stopping on request')
                 break
-            try:
-                emtpy_run = self.queue.process_batch()
-            except Exception as ex:
-                logging.error("Queue process batch failed, backing off for a minute", exc_info=ex)
-                sleep(60)
-            else:
-                if emtpy_run:
-                    seconds = getattr(settings, 'TASKER_SLEEP_TIME', 10)
-                    logging.debug("Will sleep for %s seconds", seconds)
-                    sleep(seconds)
+            self.run_once()
+
+    def run_once(self):
+        try:
+            emtpy_run = self.queue.process_batch()
+        except Exception as ex:
+            self.back_off_seconds = self.queue.on_error_back_off(self.back_off_seconds, ex)
+        else:
+            self.back_off_seconds = None
+            if emtpy_run:
+                seconds = getattr(settings, 'TASKER_SLEEP_TIME', 10)
+                logging.debug("Queue %s had empty run, it will sleep for %s seconds", self.queue.name, seconds)
+                sleep(seconds)
 
     def request_stop(self):
         self._stop_requested = True
@@ -103,6 +111,9 @@ class TaskQueue(models.Model):
     name = models.CharField(max_length=100, default='default', unique=True)
     rate_limit = models.PositiveSmallIntegerField(null=True, blank=True, help_text='Maximum number of tasks to run per hour')
     status = models.PositiveSmallIntegerField(default=QueueStatus.enabled, choices=QueueStatus.choices())
+    back_off_base_seconds = models.PositiveSmallIntegerField(default=60)
+    back_off_max_seconds = models.PositiveIntegerField(default=86400)
+    back_off_multiplier = models.FloatField(default=4)
 
     def __init__(self, *args, **kwargs):
         super(TaskQueue, self).__init__(*args, **kwargs)
@@ -113,7 +124,7 @@ class TaskQueue(models.Model):
         return "TaskQueue:{}:{}.{}".format(self.pk, self.name, self.get_status_display())
 
     def process_batch(self, limit=10):
-        qry = TaskInfo.objects.filter(eta__lte=datetime.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target__queue=self)
+        qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target__queue=self)
         batch = qry.values_list('id', flat=True)[:limit]
         empty_run = True
         for pk in batch:
@@ -128,6 +139,15 @@ class TaskQueue(models.Model):
             wait = self.time_interval - duration
             if wait > timedelta():
                 sleep(wait.seconds)
+
+    def on_error_back_off(self, seconds, ex):
+        if seconds is None:
+            seconds = self.back_off_base_seconds
+        else:
+            seconds *= self.back_off_multiplier
+        logging.error("Work failed on %s, backing off for %s seconds", self.name, seconds, exc_info=ex)
+        sleep(min(seconds, self.back_off_max_seconds))
+        return seconds
 
 
 @six.python_2_unicode_compatible
@@ -228,19 +248,9 @@ class TaskInfo(models.Model):
             with transaction.atomic():
                 target(*args, **kwargs)
         except RetryLaterException as ex:
-            # This is a task controlled retry, it does not count toward max_retries
-            # if tasks wants to retry indefinitely we will not object
-            if getattr(settings, 'TASKER_ALWAYS_EAGER', None):
-                logging.error("Failing permanently on task in eager mode", exc_info=ex)
-                # there is no point in retrying this in eager mode, it fail each time
-                return
-            logging.warning("Retrying on task request", exc_info=ex)
-            self.eta = timezone.now() + timedelta(seconds=ex.countdown)
-            self.save()
-
-        except Exception as exc:
-            logging.error("{} execution failed".format(str(self)), exc_info=True)
-            self.error(self.get_error_status_message(exc))
+            self.retry(ex)
+        except Exception as ex:
+            self.error(ex)
         else:
             self.success()
 
@@ -277,9 +287,24 @@ class TaskInfo(models.Model):
         self.executed = timezone.now()
         self.save()
 
-    def error(self, status_message, status=TaskStatus.error):
+    def retry(self, ex, status=TaskStatus.retry):
+        # This is a task controlled retry, it does not count toward max_retries
+        # if tasks wants to retry indefinitely we will not object
+        if getattr(settings, 'TASKER_ALWAYS_EAGER', None):
+            logging.error("Failing permanently on task in eager mode", exc_info=ex)
+            # there is no point in retrying this in eager mode, it fail each time
+            return
+        logging.warning("Retrying on task request", exc_info=ex)
+        self.eta = ex.eta
+        self.status_message = self.get_error_status_message(ex)
         self.status = status
-        self.status_message = status_message
+        self.save()
+
+
+    def error(self, ex, status=TaskStatus.error):
+        logging.error("{} execution failed".format(str(self)), exc_info=True)
+        self.status = status
+        self.status_message = self.get_error_status_message(ex)
 
         if self.retry_count < self.target.max_retries:
             self.status = TaskStatus.retry

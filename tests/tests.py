@@ -309,6 +309,27 @@ class TaskQueueTests(TestCase):
         task = models.TaskInfo.setup(lambda: 1, None)
         self.assertTrue(is_aware(task.eta))
 
+    @patch('django_tasker.models.sleep')
+    def test_back_off_time(self, sleep):
+        worker = factories.TaskQueueFactory()
+        s = worker.on_error_back_off(None, Exception())
+        base_seconds = models.TaskQueue._meta.get_field('back_off_base_seconds').default
+        back_off_max_seconds = models.TaskQueue._meta.get_field('back_off_max_seconds').default
+        back_off_multiplier = models.TaskQueue._meta.get_field('back_off_multiplier').default
+        sleep.assert_called_with(base_seconds)
+        s = worker.on_error_back_off(s, Exception())
+        sleep.assert_called_with(base_seconds * back_off_multiplier)
+        s = worker.on_error_back_off(s, Exception())
+        sleep.assert_called_with(base_seconds * back_off_multiplier ** 2)
+        s = worker.on_error_back_off(s, Exception())
+        sleep.assert_called_with(base_seconds * back_off_multiplier ** 3)
+        s = worker.on_error_back_off(s, Exception())
+        sleep.assert_called_with(base_seconds * back_off_multiplier ** 4)
+        s = worker.on_error_back_off(s, Exception())
+        sleep.assert_called_with(base_seconds * back_off_multiplier ** 5)
+        s = worker.on_error_back_off(s, Exception())
+        sleep.assert_called_with(back_off_max_seconds)
+
 
 class TestAppTests(TestCase):
 
@@ -342,3 +363,21 @@ class TestAppTests(TestCase):
         t.execute()
         self.assertEqual(None, t.status_message)
         self.assertEqual(models.TaskStatus.success, t.status)
+
+
+class TestWorker(TestCase):
+    @patch('django_tasker.models.sleep')
+    def test_sleep_on_no_work(self, sleep):
+        worker = factories.TaskWorkerFactory()
+        worker.run_once()
+        sleep.assert_called_with(10)
+
+    @patch('django_tasker.models.TaskQueue.on_error_back_off')
+    def test_sleep_on_erorr(self, on_error_back_off):
+        worker = factories.TaskWorkerFactory()
+        worker.queue.process_batch = MagicMock()
+        ex = Exception()
+        worker.queue.process_batch.side_effect = ex
+        worker.run_once()
+        on_error_back_off.assert_called_with(None, ex)
+

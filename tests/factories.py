@@ -32,3 +32,10 @@ class TaskInfoFactory(factory.DjangoModelFactory):
 
     class Meta:
         model = models.TaskInfo
+
+
+class TaskWorkerFactory(factory.Factory):
+    queue = factory.SubFactory(TaskQueueFactory)
+
+    class Meta:
+        model = models.TaskWorker
