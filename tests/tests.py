@@ -372,6 +372,14 @@ class TestWorker(TestCase):
         worker.run_once()
         sleep.assert_called_with(10)
 
+    @patch('django_tasker.models.sleep')
+    def test_no_sleep_when_work_done(self, sleep):
+        from tests.app.models import SomeModel
+        task = SomeModel.objects.create().do_stuff.queue()
+        worker = factories.TaskWorkerFactory(queue=task.target.queue)
+        worker.run_once()
+        self.assertFalse(sleep.called)
+
     @patch('django_tasker.models.TaskQueue.on_error_back_off')
     def test_sleep_on_erorr(self, on_error_back_off):
         worker = factories.TaskWorkerFactory()

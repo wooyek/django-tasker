@@ -20,6 +20,7 @@ class BaseModel(models.Model):
     def no_queable(self):
         pass
 
+
 class SomeModel(BaseModel):
     bar = BooleanField(default=True)
 
@@ -31,4 +32,3 @@ class SomeModel(BaseModel):
     @queueable
     def do_whole_other_stuff(cls):
         pass
-

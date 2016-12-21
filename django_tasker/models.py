@@ -37,10 +37,6 @@ class QueueStatus(ChoicesIntEnum):
     enabled = 0
     disabled = 1
 
-BACK_OFF_BASE_SECONDS = 60
-BACK_OFF_MAX_SECONDS = 86400
-BACK_OFF_MULTIPLIER = 4
-
 
 class TaskWorker(object):
     def __init__(self, queue):
@@ -281,6 +277,7 @@ class TaskInfo(models.Model):
             pass
         else:
             task.execute()
+            return task
 
     def success(self):
         self.status = TaskStatus.success
