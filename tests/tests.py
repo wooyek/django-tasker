@@ -400,6 +400,11 @@ class RetryLaterExceptionTests(TestCase):
         self.assertIsNotNone(ex.eta.tzinfo)
 
     @override_settings(USE_TZ=True)
+    def test_no_eta_tz(self):
+        ex = exceptions.RetryLaterException('', countdown=3)
+        self.assertIsNotNone(ex.eta.tzinfo)
+
+    @override_settings(USE_TZ=True)
     def test_aware_eta_tz(self):
         ex = exceptions.RetryLaterException('', eta=timezone.now())
         self.assertIsNotNone(ex.eta.tzinfo)

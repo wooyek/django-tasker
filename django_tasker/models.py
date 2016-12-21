@@ -119,14 +119,14 @@ class TaskQueue(models.Model):
     def __str__(self):
         return "TaskQueue:{}:{}.{}".format(self.pk, self.name, self.get_status_display())
 
-    def process_batch(self, limit=10):
+    def process_batch(self, limit=1):
         qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target__queue=self)
         batch = qry.values_list('id', flat=True)[:limit]
         empty_run = True
         for pk in batch:
+            empty_run = False
             start = datetime.now()
             if TaskInfo.process_one(pk):
-                empty_run = False
                 self.throttle(datetime.now() - start)
         return empty_run
 
