@@ -134,6 +134,7 @@ class TaskQueue(models.Model):
         if self.rate_limit:
             wait = self.time_interval - duration
             if wait > timedelta():
+                logging.debug("Throttle limiting for seconds: %s", wait.total_seconds())
                 sleep(wait.seconds)
 
     def on_error_back_off(self, seconds, ex):
