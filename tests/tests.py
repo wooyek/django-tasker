@@ -271,7 +271,7 @@ class TaskQueueTests(TestCase):
         q.throttle(timedelta(seconds=1))
         sleep.assert_called_with(59)
 
-    def test_time_interval(self, sleep):
+    def test_time_interval(self):
         q = models.TaskQueue(rate_limit=1800)
         self.assertEqual(q.time_interval.total_seconds(), 2)
 
