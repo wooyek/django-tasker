@@ -181,7 +181,7 @@ class TaskInfo(models.Model):
     status_message = models.TextField(default=None, blank=None, null=True)
 
     class Meta:
-        index_together = ('id', 'status')
+        index_together = (('id', 'eta', 'status'),)
 
     def __str__(self):
         return "TaskInfo:{}:{}:{}".format(self.pk, self.get_status_display(), self.target)
@@ -267,7 +267,8 @@ class TaskInfo(models.Model):
     def process_one(cls, pk):
         try:
             with transaction.atomic():
-                task = cls.objects.select_for_update(nowait=True).filter(pk=pk, status__in=(TaskStatus.queued, TaskStatus.retry)).first()
+                qry = cls.objects.select_for_update(nowait=True)
+                task = qry.filter(pk=pk, status__in=(TaskStatus.queued, TaskStatus.retry)).first()
                 if task is None:
                     return
                 task.status = TaskStatus.busy
@@ -298,18 +299,18 @@ class TaskInfo(models.Model):
         self.status = status
         self.save()
 
-
     def error(self, ex, status=TaskStatus.error):
         logging.error("{} execution failed".format(str(self)), exc_info=True)
         self.status = status
         self.status_message = self.get_error_status_message(ex)
+        self.retry_count += 1
 
-        if self.retry_count < self.target.max_retries:
+        if self.retry_count <= self.target.max_retries:
             self.status = TaskStatus.retry
             countdown = get_retry_countdown(self.retry_count)
             self.eta = timezone.now() + timedelta(seconds=countdown)
-
-        self.retry_count += 1
+        else:
+            logging.error("Exceed max_retries on task %s", self, exc_info=ex)
         self.save()
 
     # noinspection PyMethodMayBeStatic

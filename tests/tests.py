@@ -28,7 +28,7 @@ from django.test import TestCase
 from django_tasker import exceptions
 from django_tasker.models import TaskInfo
 from django_tasker.decoration import queueable
-from django_tasker import models
+from django_tasker import models, admin
 from . import factories
 
 
@@ -243,6 +243,7 @@ class TaskInfoTests(TestCase):
         # Unbound (or just) functions don't know where there where taken from
         self.assertEqual('tests.app.models.BaseModel.no_queable', v)
 
+
 # TODO: Test select_for_update
 # class TaskInfoTestsTx(TransactionTestCase):
 #     @patch('django_tasker.models.TaskInfo.execute')
@@ -256,6 +257,31 @@ class TaskInfoTests(TestCase):
 #         thread.start()
 #         thread.join()
 #         self.assertEqual(1, execute.call_count)
+
+
+class TaskInfoAdminTests(TestCase):
+    @patch("django_tasker.admin.messages")
+    @patch("django_tasker.models.TaskInfo.execute")
+    def test_execute_tasks(self, execute, messages):
+        factories.TaskInfoFactory.create_batch(9)
+        admin.TaskInfoAdmin.execute_tasks(None, None, models.TaskInfo.objects.all()[3:6])
+        self.assertEqual(3, execute.call_count)
+        self.assertTrue(messages.info.called)
+
+    @patch("django_tasker.admin.messages")
+    def test_set_retry_status(self, messages):
+        tasks = factories.TaskInfoFactory.create_batch(9, status=models.TaskStatus.error)
+        factories.TaskInfoFactory.create_batch(3, status=models.TaskStatus.retry)
+        admin.TaskInfoAdmin.set_retry_status(None, None, models.TaskInfo.objects.filter(id__in=[t.pk for t in tasks[3:6]]))
+        self.assertEqual(6, models.TaskInfo.objects.filter(status=models.TaskStatus.retry).count())
+        self.assertTrue(messages.info.called)
+
+    @patch("django_tasker.admin.messages")
+    def test_reset_retry_count(self, messages):
+        tasks = factories.TaskInfoFactory.create_batch(9, retry_count=5)
+        admin.TaskInfoAdmin.reset_retry_count(None, None, models.TaskInfo.objects.filter(id__in=[t.pk for t in tasks[3:6]]))
+        self.assertEqual(3, models.TaskInfo.objects.filter(retry_count=0).count())
+        self.assertTrue(messages.info.called)
 
 
 class TaskQueueTests(TestCase):
@@ -338,7 +364,6 @@ class TaskQueueTests(TestCase):
 
 
 class TestAppTests(TestCase):
-
     def test_queue_base_method_runs_on_subclass(self):
         from tests.app.models import SomeModel
         o = SomeModel.objects.create()
@@ -397,7 +422,6 @@ class TestWorker(TestCase):
 
 
 class RetryLaterExceptionTests(TestCase):
-
     @override_settings(USE_TZ=True)
     def test_naive_eta_tz(self):
         ex = exceptions.RetryLaterException('', eta=datetime.now())

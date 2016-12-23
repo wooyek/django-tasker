@@ -11,14 +11,14 @@ from django_tasker import models
 
 
 class TaskQueueFactory(factory.DjangoModelFactory):
-    name = 'default'
+    name = factory.Faker('company')
 
     class Meta:
         model = models.TaskQueue
 
 
 class TaskTargetFactory(factory.DjangoModelFactory):
-    name = 'foo.bar'
+    name = factory.Faker('domain_name')
     queue = factory.SubFactory(TaskQueueFactory)
 
     class Meta:
