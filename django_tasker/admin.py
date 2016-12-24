@@ -22,7 +22,7 @@ class TaskInfoAdmin(admin.ModelAdmin):
 
     # noinspection PyUnusedLocal
     def delete_completed(self, request, queryset):
-        qry = models.TaskInfo.objects.filter(status=models.TaskStatus.Success)
+        qry = models.TaskInfo.objects.filter(status=models.TaskStatus.success)
         status = qry.delete()
         messages.info(request, "Deleted {} tasks".format(status[0]))
 

@@ -181,7 +181,7 @@ class TaskInfoModuleFunction(TestCase):
 class TaskInfoTests(TestCase):
     @patch('django_tasker.models.TaskInfo.execute')
     def test_process_one(self, execute):
-        t = factories.TaskInfoFactory()
+        t = factories.TaskInfoFactory(status=models.TaskStatus.queued)
         models.TaskInfo.process_one(t.pk)
         execute.assert_called_with()
         models.TaskInfo.process_one(t.pk)
@@ -282,6 +282,14 @@ class TaskInfoAdminTests(TestCase):
         admin.TaskInfoAdmin.reset_retry_count(None, None, models.TaskInfo.objects.filter(id__in=[t.pk for t in tasks[3:6]]))
         self.assertEqual(3, models.TaskInfo.objects.filter(retry_count=0).count())
         self.assertTrue(messages.info.called)
+
+    @patch("django_tasker.admin.messages")
+    def test_delete_completed(self, messages):
+        factories.TaskInfoFactory.create_batch(10)
+        factories.TaskInfoFactory.create_batch(3, status=models.TaskStatus.success)
+        count = models.TaskInfo.objects.filter(status=models.TaskStatus.success).count()
+        admin.TaskInfoAdmin.delete_completed(None, None, None)
+        self.assertEqual(13 - count, models.TaskInfo.objects.count())
 
 
 class TaskQueueTests(TestCase):

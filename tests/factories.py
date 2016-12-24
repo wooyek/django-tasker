@@ -6,6 +6,7 @@ from __future__ import absolute_import
 from datetime import datetime
 
 import factory
+from factory import fuzzy
 
 from django_tasker import models
 
@@ -27,7 +28,7 @@ class TaskTargetFactory(factory.DjangoModelFactory):
 
 class TaskInfoFactory(factory.DjangoModelFactory):
     target = factory.SubFactory(TaskTargetFactory)
-    status = models.TaskStatus.queued
+    status = fuzzy.FuzzyChoice(models.TaskStatus.values())
     eta = datetime.now()
 
     class Meta:
