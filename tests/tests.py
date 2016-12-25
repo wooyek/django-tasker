@@ -370,6 +370,16 @@ class TaskQueueTests(TestCase):
         s = worker.on_error_back_off(s, Exception())
         sleep.assert_called_with(back_off_max_seconds)
 
+    def test_retry_busy_timeouts(self):
+        queue = factories.TaskQueueFactory()
+        factories.TaskInfoFactory.create_batch(3, status=models.TaskStatus.busy, target__queue=queue)
+        when = timezone.now() - timedelta(seconds=models.TaskQueue._meta.get_field('busy_max_seconds').default)
+        # Update in db, cause ts has auto_now=True
+        models.TaskInfo.objects.filter(status=models.TaskStatus.busy).update(ts=when)
+        factories.TaskInfoFactory.create_batch(10, target__queue=queue)
+        rows = queue.retry_busy_timeouts()
+        self.assertEqual(3, rows)
+
 
 class TestAppTests(TestCase):
     def test_queue_base_method_runs_on_subclass(self):
@@ -427,6 +437,14 @@ class TestWorker(TestCase):
         worker.queue.process_batch.side_effect = ex
         worker.run_once()
         on_error_back_off.assert_called_with(None, ex)
+
+    @patch('django_tasker.models.TaskQueue.process_batch')
+    @patch('django_tasker.models.TaskQueue.retry_busy_timeouts')
+    def test_retry_busy_timeouts_called(self, retry_busy_timeouts, process_batch):
+        worker = factories.TaskWorkerFactory()
+        process_batch.return_value = False
+        worker.run_once()
+        self.assertTrue(retry_busy_timeouts.called)
 
 
 class RetryLaterExceptionTests(TestCase):

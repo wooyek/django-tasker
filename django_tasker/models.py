@@ -53,15 +53,17 @@ class TaskWorker(object):
             self.run_once()
 
     def run_once(self):
+        queue = self.queue
         try:
-            emtpy_run = self.queue.process_batch()
+            queue.retry_busy_timeouts()
+            emtpy_run = queue.process_batch()
         except Exception as ex:
-            self.back_off_seconds = self.queue.on_error_back_off(self.back_off_seconds, ex)
+            self.back_off_seconds = queue.on_error_back_off(self.back_off_seconds, ex)
         else:
             self.back_off_seconds = None
             if emtpy_run:
                 seconds = getattr(settings, 'TASKER_SLEEP_TIME', 10)
-                logging.debug("Queue %s had empty run, it will sleep for %s seconds", self.queue.name, seconds)
+                logging.debug("Queue %s had empty run, it will sleep for %s seconds", queue.name, seconds)
                 sleep(seconds)
 
     def request_stop(self):
@@ -110,6 +112,7 @@ class TaskQueue(models.Model):
     back_off_base_seconds = models.PositiveSmallIntegerField(default=60)
     back_off_max_seconds = models.PositiveIntegerField(default=86400)
     back_off_multiplier = models.FloatField(default=4)
+    busy_max_seconds = models.PositiveIntegerField(default=3600)
 
     def __init__(self, *args, **kwargs):
         super(TaskQueue, self).__init__(*args, **kwargs)
@@ -145,6 +148,13 @@ class TaskQueue(models.Model):
         logging.error("Work failed on %s, backing off for %s seconds", self.name, seconds, exc_info=ex)
         sleep(min(seconds, self.back_off_max_seconds))
         return seconds
+
+    def retry_busy_timeouts(self):
+        when = timezone.now() - timedelta(seconds=self.busy_max_seconds)
+        rows = TaskInfo.objects.filter(ts__lte=when, status=TaskStatus.busy, target__queue=self).update(status=TaskStatus.retry)
+        if rows:
+            logging.info("Retrying busy %s timeouts in %s queue", rows, self)
+        return rows
 
 
 @six.python_2_unicode_compatible
