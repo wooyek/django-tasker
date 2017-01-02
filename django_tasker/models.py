@@ -164,7 +164,7 @@ class TaskTarget(models.Model):
     max_retries = models.PositiveSmallIntegerField(default=5)
 
     def __str__(self):
-        return "TaskTarget:{}:{}".format(self.pk, self.name)
+        return self.name
 
 
 class TaskStatus(ChoicesIntEnum):
@@ -182,30 +182,36 @@ class TaskStatus(ChoicesIntEnum):
 class TaskInfo(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     executed = models.DateTimeField(blank=True, null=True)
-    ts = models.DateTimeField(auto_now=True)
-    retry_count = models.PositiveSmallIntegerField(default=0)
-    eta = models.DateTimeField(null=True, blank=True)
+    ts = models.DateTimeField(auto_now=True, db_index=True)
+    retry_count = models.PositiveSmallIntegerField(default=0, db_index=True)
+    eta = models.DateTimeField(null=True, blank=True, db_index=True)
     target = models.ForeignKey(TaskTarget)
     payload = models.CharField(max_length=300, null=True, blank=True)
     status = models.IntegerField(default=TaskStatus.created, choices=TaskStatus.choices())
     status_message = models.TextField(default=None, blank=None, null=True)
 
     class Meta:
-        index_together = (('id', 'eta', 'status'),)
+        index_together = (
+            ('id', 'eta', 'status'),
+            ('id', 'target'),
+            ('target', 'status'),
+            ('target', 'eta'),
+        )
 
     def __str__(self):
-        return "TaskInfo:{}:{}:{}".format(self.pk, self.get_status_display(), self.target)
+        return "TaskInfo:{}:{}:{}:{}:{}".format(self.pk, self.get_status_display(), self.target, self.retry_count, self.eta)
 
     @classmethod
-    def setup(cls, target, instance, queue='default', rate_limit=None, countdown=0, max_retries=5):
+    def setup(cls, target, instance, queue='default', rate_limit=None, countdown=0, eta=None, max_retries=5):
         logging.debug("method.__name__: %s", target.__name__)
+        now = timezone.now()
+        eta = eta or (now + timedelta(seconds=countdown))
         target_name = cls.get_target_name(target, instance)
         target = TaskTarget.objects.filter(name=target_name).first()
         if target is None:
             queue, created = TaskQueue.objects.get_or_create(name=queue, defaults={'rate_limit': rate_limit})
             target, created = TaskTarget.objects.get_or_create(name=target_name, defaults={'queue': queue, 'max_retries': max_retries})
 
-        eta = timezone.now() + timedelta(countdown)
         eager = getattr(settings, 'TASKER_ALWAYS_EAGER', None)
         task = cls(target=target, eta=eta, status=TaskStatus.eager if eager else TaskStatus.queued, )
         task.instance = instance
@@ -221,7 +227,32 @@ class TaskInfo(models.Model):
             target_name = '.'.join((target.__module__, target.__qualname__))
         return target_name
 
+    def queue_once(self, *args, **kwargs):
+        """Queue this task only if another similar task does not exits already"""
+        payload = self._get_payload(args, kwargs)
+        if self.is_unique(payload):
+            return self._queue_payload(payload)
+
+    def is_unique(self, payload):
+        assert self.pk is None, "Checking for uniques is not supported for saved tasks"
+        return not TaskInfo.objects.filter(
+            eta=self.eta,
+            target=self.target,
+            payload=payload,
+        ).exists()
+
     def queue(self, *args, **kwargs):
+        payload = self._get_payload(args, kwargs)
+        return self._queue_payload(payload)
+
+    def _queue_payload(self, payload):
+        self.payload = payload
+        self.save()
+        if self.status == TaskStatus.eager:
+            self.execute()
+        return self
+
+    def _get_payload(self, args, kwargs):
         payload = {}
         if args:
             payload['args'] = args
@@ -232,14 +263,7 @@ class TaskInfo(models.Model):
             pk = getattr(self.instance, 'pk')
             assert pk is not None, "Model instance must be saved and have a 'pk' value, before it's method can be queued. Alternatively you can use queue a classmethod without pk set"
             payload['pk'] = pk
-
-        self.payload = json.dumps(payload) if payload else None
-        self.save()
-
-        if self.status == TaskStatus.eager:
-            self.execute()
-
-        return self
+        return json.dumps(payload) if payload else None
 
     def execute(self):
         logging.info("Executing task:%s", self.target)

@@ -243,6 +243,43 @@ class TaskInfoTests(TestCase):
         # Unbound (or just) functions don't know where there where taken from
         self.assertEqual('tests.app.models.BaseModel.no_queable', v)
 
+    def test_is_not_unique(self):
+        a = factories.TaskInfoFactory.create(status=models.TaskStatus.queued, payload="{}")
+        b = factories.TaskInfoFactory.build(status=models.TaskStatus.queued, payload=a.payload, eta=a.eta, target=a.target)
+        self.assertFalse(b.is_unique('{}'))
+
+    def test_is_unique_fail(self):
+        a = factories.TaskInfoFactory.create()
+        self.assertRaises(AssertionError, a.is_unique, '{}')
+
+    @patch('django_tasker.models.TaskInfo._get_payload')
+    def test_queue_once_fail(self, get_payload):
+        get_payload.return_value = None
+        a = factories.TaskInfoFactory.create()
+        self.assertRaises(AssertionError, a.queue_once)
+
+    def test_is_unique(self):
+        a = factories.TaskInfoFactory.create(status=models.TaskStatus.queued, payload="{}")
+        b = factories.TaskInfoFactory.build(status=a.status, payload="{a}", eta=a.eta)
+        self.assertTrue(b.is_unique('{}'))
+        b = factories.TaskInfoFactory.build(status=a.status, target=a.target,  payload="{}", eta=a.eta + timedelta(seconds=1))
+        self.assertNotEqual(a.eta, b.eta)
+        self.assertTrue(b.is_unique('{}'))
+
+    @override_settings(TASKER_ALWAYS_EAGER=False)
+    def test_queue_once(self):
+        dummy = factories.TaskQueueFactory()
+        eta = timezone.now()
+        models.TaskInfo.setup(dummy.throttle, dummy, eta=eta).queue()
+        models.TaskInfo.setup(dummy.throttle, dummy, eta=eta).queue_once()
+        self.assertEqual(1, TaskInfo.objects.count())
+
+    def test_countdown(self):
+        dummy = factories.TaskInfoFactory.create()
+        when = timezone.now()
+        task = models.TaskInfo.setup(dummy.is_unique, dummy, countdown=5)
+        self.assertAlmostEqual(when + timedelta(seconds=5), task.eta, delta=timedelta(milliseconds=0))
+
 
 # TODO: Test select_for_update
 # class TaskInfoTestsTx(TransactionTestCase):
