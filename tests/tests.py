@@ -278,7 +278,7 @@ class TaskInfoTests(TestCase):
         dummy = factories.TaskInfoFactory.create()
         when = timezone.now()
         task = models.TaskInfo.setup(dummy.is_unique, dummy, countdown=5)
-        self.assertAlmostEqual(when + timedelta(seconds=5), task.eta, delta=timedelta(milliseconds=0))
+        self.assertAlmostEqual(when + timedelta(seconds=5), task.eta, delta=timedelta(milliseconds=2))
 
 
 # TODO: Test select_for_update
