@@ -281,6 +281,22 @@ class TaskInfoTests(TestCase):
         self.assertAlmostEqual(when + timedelta(seconds=5), task.eta, delta=timedelta(milliseconds=2))
 
 
+class ChangesNotReflectedInMigrations(TestCase):
+    def test_missing_migrations(self):
+        from django.db import connection
+        from django.apps.registry import apps
+        from django.db.migrations.executor import MigrationExecutor
+        executor = MigrationExecutor(connection)
+        from django.db.migrations.autodetector import MigrationAutodetector
+        from django.db.migrations.state import ProjectState
+        autodetector = MigrationAutodetector(
+            executor.loader.project_state(),
+            ProjectState.from_apps(apps),
+        )
+        changes = autodetector.changes(graph=executor.loader.graph)
+        self.assertEqual({}, changes)
+
+
 # TODO: Test select_for_update
 # class TaskInfoTestsTx(TransactionTestCase):
 #     @patch('django_tasker.models.TaskInfo.execute')
