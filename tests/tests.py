@@ -389,6 +389,13 @@ class TaskQueueTests(TestCase):
         batch = t1.target.queue.get_batch(3)
         self.assertEqual(list(batch), [t2.pk, t3.pk, t1.pk])
 
+    def test_get_batch_full(self):
+        t1 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now())
+        t2 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now() - timedelta(seconds=5), target=t1.target)
+        t3 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now() - timedelta(seconds=2), target=t1.target)
+        batch = t1.target.queue.get_batch(3, flat=False)
+        self.assertEqual(list(batch), [t2, t3, t1])
+
     @patch('django_tasker.models.TaskInfo.process_one')
     def test_process_future(self, process_one):
         task = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now() + timedelta(hours=1))
