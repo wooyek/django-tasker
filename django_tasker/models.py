@@ -1,6 +1,7 @@
 # coding=utf-8
 import json
 import logging
+import random
 import signal
 from datetime import datetime, timedelta
 from enum import IntEnum
@@ -141,7 +142,7 @@ class TaskQueue(models.Model):
         qry = qry.order_by('eta')
         if flat:
             qry = qry.values_list('id', flat=True)
-        return qry[:limit]
+        return random.sample(qry[:limit*10], limit)
 
     @property
     def targets(self):
