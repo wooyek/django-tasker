@@ -272,13 +272,14 @@ class TaskInfo(models.Model):
         return json.dumps(payload) if payload else None
 
     def execute(self):
-        logging.info("Executing task:%s", self.target)
+        logging.info("Executing task     : %s", self)
         try:
             target, args, kwargs = self.prepare_call()
             self._execute_call(target, args, kwargs)
         except Exception as ex:
             logging.warning("{} execution failed".format(str(self)), exc_info=ex)
             self.error(self.get_error_status_message(ex), status=TaskStatus.corrupted)
+        logging.info("Executing complete : %s", self)
 
     def _execute_call(self, target, args, kwargs):
         try:
@@ -305,6 +306,7 @@ class TaskInfo(models.Model):
 
     @classmethod
     def process_one(cls, pk):
+        logging.debug("process_one: %s", pk)
         try:
             with transaction.atomic():
                 qry = cls.objects.select_for_update(nowait=True)
