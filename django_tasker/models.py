@@ -43,6 +43,8 @@ class TaskWorker(object):
         self.queue = queue
         self._stop_requested = False
         self.back_off_seconds = None
+        self.run_count = 0
+        self.cleanup_rate = (self.queue.rate_limit or 5000) * 24
 
     def __call__(self):
         logging.info("Worker booting for queue: %s", self.queue)
@@ -55,7 +57,8 @@ class TaskWorker(object):
     def run_once(self):
         queue = self.queue
         try:
-            queue.retry_busy_timeouts()
+            if self.run_count % self.cleanup_rate == 0:
+                queue.retry_busy_timeouts()
             emtpy_run = queue.process_batch()
         except Exception as ex:
             self.back_off_seconds = queue.on_error_back_off(self.back_off_seconds, ex)
@@ -133,13 +136,17 @@ class TaskQueue(models.Model):
         return empty_run
 
     def get_batch(self, limit, flat=True):
-        if not hasattr(self, 'targets'):
-            self.targets = TaskTarget.objects.filter(queue=self).values_list('id', flat=True)
         qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target_id__in=self.targets)
         qry = qry.order_by('eta')
         if flat:
             qry = qry.values_list('id', flat=True)
         return qry[:limit]
+
+    @property
+    def targets(self):
+        if not hasattr(self, '_targets'):
+            self._targets = TaskTarget.objects.filter(queue=self).values_list('id', flat=True)
+        return self._targets
 
     def throttle(self, duration):
         if self.rate_limit:
@@ -159,7 +166,7 @@ class TaskQueue(models.Model):
 
     def retry_busy_timeouts(self):
         when = timezone.now() - timedelta(seconds=self.busy_max_seconds)
-        rows = TaskInfo.objects.filter(ts__lte=when, status=TaskStatus.busy, target__queue=self).update(status=TaskStatus.retry)
+        rows = TaskInfo.objects.filter(ts__lte=when, status=TaskStatus.busy, target_id__in=self.targets).update(status=TaskStatus.retry)
         if rows:
             logging.info("Retrying busy %s timeouts in %s queue", rows, self)
         return rows
