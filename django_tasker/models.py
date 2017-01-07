@@ -133,7 +133,9 @@ class TaskQueue(models.Model):
         return empty_run
 
     def get_batch(self, limit, flat=True):
-        qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target__queue=self)
+        if not hasattr(self, 'targets'):
+            self.targets = TaskTarget.objects.filter(queue=self).values_list('id', flat=True)
+        qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target_id__in=self.targets)
         qry = qry.order_by('eta')
         if flat:
             qry = qry.values_list('id', flat=True)
@@ -200,7 +202,7 @@ class TaskInfo(models.Model):
         index_together = (
             ('id', 'eta', 'status'),
             ('id', 'target'),
-            ('target', 'status'),
+            ('id', 'target', 'status', 'eta'),
             ('target', 'eta'),
         )
 
@@ -307,21 +309,12 @@ class TaskInfo(models.Model):
     @classmethod
     def process_one(cls, pk):
         logging.debug("process_one: %s", pk)
-        try:
-            with transaction.atomic():
-                qry = cls.objects.select_for_update(nowait=True)
-                task = qry.filter(pk=pk, status__in=(TaskStatus.queued, TaskStatus.retry)).first()
-                if task is None:
-                    return
-                task.status = TaskStatus.busy
-                task.save()
-        except DatabaseError:
-            # This will happen if another worker took this task
-            # https://docs.djangoproject.com/en/1.10/ref/models/querysets/#select-for-update
-            pass
-        else:
-            task.execute()
-            return task
+        rows = cls.objects.filter(pk=pk, status__in=(TaskStatus.queued, TaskStatus.retry)).update(status=TaskStatus.busy)
+        if rows < 1:
+            return
+        task = cls.objects.get(pk=pk)
+        task.execute()
+        return task
 
     def success(self):
         self.status = TaskStatus.success

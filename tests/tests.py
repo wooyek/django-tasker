@@ -195,6 +195,12 @@ class TaskInfoTests(TestCase):
         models.TaskInfo.process_one(t.pk)
         self.assertEqual(1, execute.call_count)
 
+    @patch('django_tasker.models.TaskInfo.execute')
+    def test_process_one_busy(self, execute):
+        t = factories.TaskInfoFactory(status=models.TaskStatus.busy)
+        models.TaskInfo.process_one(t.pk)
+        self.assertFalse(execute.called)
+
     def test_retry(self):
         t = factories.TaskInfoFactory()
         t._execute_call(1, None, None)
@@ -386,7 +392,9 @@ class TaskQueueTests(TestCase):
         t1 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now())
         t2 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now() - timedelta(seconds=5), target=t1.target)
         t3 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now() - timedelta(seconds=2), target=t1.target)
-        batch = t1.target.queue.get_batch(3)
+        queue = t1.target.queue
+        queue.refresh_from_db()
+        batch = queue.get_batch(3)
         self.assertEqual(list(batch), [t2.pk, t3.pk, t1.pk])
 
     def test_get_batch_full(self):
