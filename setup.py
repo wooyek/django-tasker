@@ -20,7 +20,7 @@ tests_require = parse_requirements(
 with io.open("README.rst", encoding="UTF-8") as readme:
     long_description = readme.read()
 
-version = "0.2.34"
+version = "0.2.35"
 
 setup_kwargs = {
     'name': "django-tasker",
