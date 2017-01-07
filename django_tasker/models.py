@@ -57,6 +57,7 @@ class TaskWorker(object):
     def run_once(self):
         queue = self.queue
         try:
+            logging.debug("run_once: %s", self.queue)
             if self.run_count % self.cleanup_rate == 0:
                 queue.retry_busy_timeouts()
             emtpy_run = queue.process_batch()
@@ -165,6 +166,7 @@ class TaskQueue(models.Model):
         return seconds
 
     def retry_busy_timeouts(self):
+        logging.debug("retry_busy_timeouts: %s", self)
         when = timezone.now() - timedelta(seconds=self.busy_max_seconds)
         rows = TaskInfo.objects.filter(ts__lte=when, status=TaskStatus.busy, target_id__in=self.targets).update(status=TaskStatus.retry)
         if rows:
