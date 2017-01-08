@@ -67,7 +67,7 @@ class TaskWorker(object):
         else:
             self.back_off_seconds = None
             if emtpy_run:
-                seconds = getattr(settings, 'TASKER_SLEEP_TIME', 10)
+                seconds = getattr(settings, 'TASKER_SLEEP_TIME', 60)
                 logging.debug("Queue %s had empty run, it will sleep for %s seconds", queue.name, seconds)
                 sleep(seconds)
 
@@ -127,8 +127,9 @@ class TaskQueue(models.Model):
     def __str__(self):
         return "TaskQueue:{}:{}.{}".format(self.pk, self.name, self.get_status_display())
 
-    def process_batch(self, limit=1):
-        batch = self.get_batch(limit)
+    def process_batch(self, limit=100):
+        batch = list(self.get_batch(limit))
+        random.shuffle(batch)
         empty_run = True
         for pk in batch:
             empty_run = False
@@ -142,7 +143,7 @@ class TaskQueue(models.Model):
         qry = qry.order_by('eta')
         if flat:
             qry = qry.values_list('id', flat=True)
-        return random.sample(qry[:limit*10], limit)
+        return qry[:limit]
 
     @property
     def targets(self):

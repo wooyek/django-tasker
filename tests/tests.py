@@ -494,7 +494,7 @@ class TestWorker(TestCase):
     def test_sleep_on_no_work(self, sleep):
         worker = factories.TaskWorkerFactory()
         worker.run_once()
-        sleep.assert_called_with(10)
+        sleep.assert_called_with(60)
 
     @patch('django_tasker.models.sleep')
     def test_no_sleep_when_work_done(self, sleep):
