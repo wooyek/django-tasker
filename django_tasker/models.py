@@ -45,7 +45,7 @@ class TaskWorker(object):
         self._stop_requested = False
         self.back_off_seconds = None
         self.run_count = 0
-        self.cleanup_rate = (self.queue.rate_limit or 5000) * 24
+        self.cleanup_rate = (self.queue.rate_limit or 5000) * 24 * 7
 
     def __call__(self):
         logging.info("Worker booting for queue: %s", self.queue)
@@ -215,6 +215,7 @@ class TaskInfo(models.Model):
             ('id', 'target'),
             ('id', 'target', 'status', 'eta'),
             ('target', 'eta'),
+            ('target', 'status'),
         )
 
     def __str__(self):
