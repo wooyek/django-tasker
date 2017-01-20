@@ -19,7 +19,7 @@ class TaskQueueFactory(factory.DjangoModelFactory):
 
 
 class TaskTargetFactory(factory.DjangoModelFactory):
-    name = factory.Faker('domain_name')
+    name = factory.Faker('name')
     queue = factory.SubFactory(TaskQueueFactory)
 
     class Meta:
