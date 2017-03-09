@@ -15,7 +15,7 @@ from django.db import models
 from django.db import transaction
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import ugettext as __, ugettext_lazy as _
 
 from django_tasker.exceptions import RetryLaterException
 
@@ -27,7 +27,7 @@ class ChoicesIntEnum(IntEnum):
 
     @classmethod
     def choices(cls):
-        return [(item.value, _(item.name.replace("_", " ").capitalize())) for item in cls]
+        return [(item.value, __(item.name.replace("_", " ").capitalize())) for item in cls]
 
     @classmethod
     def values(cls):

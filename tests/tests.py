@@ -388,6 +388,7 @@ class TaskQueueTests(TestCase):
         self.assertFalse(empty_run)
         process_one.assert_called_with(task.pk)
 
+    @override_settings(DEBUG=True)
     def test_get_batch(self):
         t1 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now())
         t2 = factories.TaskInfoFactory(status=models.TaskStatus.queued, eta=datetime.now() - timedelta(seconds=5), target=t1.target)
@@ -547,3 +548,19 @@ class RetryLaterExceptionTests(TestCase):
     def test_aware_eta_no_tz(self):
         ex = exceptions.RetryLaterException('', eta=timezone.now())
         self.assertIsNone(ex.eta.tzinfo)
+
+
+class MigrationsCheck(TestCase):
+    def test_missing_migrations(self):
+        from django.db import connection
+        from django.apps.registry import apps
+        from django.db.migrations.executor import MigrationExecutor
+        executor = MigrationExecutor(connection)
+        from django.db.migrations.autodetector import MigrationAutodetector
+        from django.db.migrations.state import ProjectState
+        autodetector = MigrationAutodetector(
+            executor.loader.project_state(),
+            ProjectState.from_apps(apps),
+        )
+        changes = autodetector.changes(graph=executor.loader.graph)
+        self.assertEqual({}, changes)
