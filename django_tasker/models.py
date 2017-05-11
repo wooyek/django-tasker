@@ -59,7 +59,7 @@ class TaskWorker(object):
         queue = self.queue
         try:
             logging.debug("run_once: %s", self.queue)
-            if self.run_count % self.cleanup_rate == 0:
+            if self.run_count > 0 and self.run_count % self.cleanup_rate == 0:
                 queue.retry_busy_timeouts()
             emtpy_run = queue.process_batch()
         except Exception as ex:
