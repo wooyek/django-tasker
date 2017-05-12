@@ -150,7 +150,7 @@ class TaskQueue(models.Model):
     @property
     def targets(self):
         if not hasattr(self, '_targets'):
-            self._targets = TaskTarget.objects.filter(queue=self).values_list('id', flat=True)
+            self._targets = list(TaskTarget.objects.filter(queue=self).values_list('id', flat=True))
         return self._targets
 
     def throttle(self, duration):
