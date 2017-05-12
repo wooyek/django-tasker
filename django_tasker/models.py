@@ -142,7 +142,7 @@ class TaskQueue(models.Model):
     def get_batch(self, limit, flat=True):
         logging.debug("limit: %s", limit)
         qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target_id__in=self.targets)
-        qry = qry.order_by('eta')
+        # qry = qry.order_by('eta')  # Ordering seems to introduce performance issues
         if flat:
             qry = qry.values_list('id', flat=True)
         return qry[:limit]
@@ -206,7 +206,7 @@ class TaskInfo(models.Model):
     ts = models.DateTimeField(auto_now=True, db_index=True)
     retry_count = models.PositiveSmallIntegerField(default=0, db_index=True)
     eta = models.DateTimeField(null=True, blank=True, db_index=True)
-    target = models.ForeignKey(TaskTarget)
+    target = models.ForeignKey(TaskTarget, db_index=True)
     payload = models.CharField(max_length=300, null=True, blank=True)
     status = models.IntegerField(default=TaskStatus.created, choices=TaskStatus.choices())
     status_message = models.TextField(default=None, blank=None, null=True)
@@ -214,6 +214,7 @@ class TaskInfo(models.Model):
 
     class Meta:
         index_together = (
+            ('status', 'eta'),
             ('id', 'eta', 'status'),
             ('id', 'target'),
             ('id', 'target', 'status', 'eta'),
