@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import DatabaseError
 from django.db import models
 from django.db import transaction
+from django.db.utils import IntegrityError
 from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import ugettext as __, ugettext_lazy as _
@@ -139,6 +140,7 @@ class TaskQueue(models.Model):
         return empty_run
 
     def get_batch(self, limit, flat=True):
+        logging.debug("limit: %s", limit)
         qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target_id__in=self.targets)
         qry = qry.order_by('eta')
         if flat:
@@ -208,6 +210,7 @@ class TaskInfo(models.Model):
     payload = models.CharField(max_length=300, null=True, blank=True)
     status = models.IntegerField(default=TaskStatus.created, choices=TaskStatus.choices())
     status_message = models.TextField(default=None, blank=None, null=True)
+    name = models.CharField(max_length=300, null=True, blank=True, unique=True)
 
     class Meta:
         index_together = (
@@ -222,7 +225,7 @@ class TaskInfo(models.Model):
         return "TaskInfo:{}:{}:{}:{}:{}".format(self.pk, self.get_status_display(), self.target, self.retry_count, self.eta)
 
     @classmethod
-    def setup(cls, target, instance, queue='default', rate_limit=None, countdown=0, eta=None, max_retries=5):
+    def setup(cls, target, instance, queue='default', rate_limit=None, countdown=0, eta=None, max_retries=5, name=None):
         logging.debug("method.__name__: %s", target.__name__)
         now = timezone.now()
         eta = eta or (now + timedelta(seconds=countdown))
@@ -233,7 +236,7 @@ class TaskInfo(models.Model):
             target, created = TaskTarget.objects.get_or_create(name=target_name, defaults={'queue': queue, 'max_retries': max_retries})
 
         eager = getattr(settings, 'TASKER_ALWAYS_EAGER', None)
-        task = cls(target=target, eta=eta, status=TaskStatus.eager if eager else TaskStatus.queued, )
+        task = cls(target=target, eta=eta, status=TaskStatus.eager if eager else TaskStatus.queued, name=name)
         task.instance = instance
         return task
 
@@ -267,7 +270,13 @@ class TaskInfo(models.Model):
 
     def _queue_payload(self, payload):
         self.payload = payload
-        self.save()
+        try:
+            self.save()
+        except IntegrityError as ex:
+            if ex.args and ex.args[0] == 'UNIQUE constraint failed: django_tasker_taskinfo.name':
+                logging.info("Duplicate task name not saved: %s", self)
+                return self
+            pass
         if self.status == TaskStatus.eager:
             self.execute()
         return self
