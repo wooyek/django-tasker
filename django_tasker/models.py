@@ -46,7 +46,7 @@ class TaskWorker(object):
         self._stop_requested = False
         self.back_off_seconds = None
         self.run_count = 0
-        self.cleanup_rate = (self.queue.rate_limit or 5000) * 24 * 7
+        self.cleanup_rate = self.queue.rate_limit or 5000
 
     def __call__(self):
         logging.info("Worker booting for queue: %s", self.queue)
@@ -60,7 +60,7 @@ class TaskWorker(object):
         queue = self.queue
         try:
             logging.debug("run_once: %s", self.queue)
-            if self.run_count > 0 and self.run_count % self.cleanup_rate == 0:
+            if self.run_count % self.cleanup_rate == 0:
                 queue.retry_busy_timeouts()
             emtpy_run = queue.process_batch()
         except Exception as ex:
@@ -214,7 +214,8 @@ class TaskInfo(models.Model):
 
     class Meta:
         index_together = (
-            ('status', 'eta'),
+            ('status', 'eta'),                  # Used by TaskQueue.get_batch
+            ('status', 'ts'),                   # Used by TaskQueue.retry_busy_timeouts
             ('id', 'eta', 'status'),
             ('id', 'target'),
             ('id', 'target', 'status', 'eta'),
