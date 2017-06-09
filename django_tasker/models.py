@@ -212,7 +212,7 @@ class TaskInfo(models.Model):
     eta = models.DateTimeField(null=True, blank=True, db_index=True)
     target = models.ForeignKey(TaskTarget, db_index=True)
     payload = models.CharField(max_length=300, null=True, blank=True)
-    status = models.IntegerField(default=TaskStatus.created, choices=TaskStatus.choices())
+    status = models.IntegerField(default=TaskStatus.created, choices=TaskStatus.choices(), db_index=True)
     status_message = models.TextField(default=None, blank=None, null=True)
     name = models.CharField(max_length=300, null=True, blank=True, unique=True)
 
@@ -221,10 +221,11 @@ class TaskInfo(models.Model):
             ('status', 'eta'),              # Used by TaskQueue.get_batch
             ('status', 'eta', 'target'),    # Used by TaskQueue.get_batch
             ('status', 'ts'),               # Used by TaskQueue.retry_busy_timeouts
-            ('id', 'eta', 'status'),
-            ('id', 'target'),
-            ('id', 'target', 'status', 'eta'),
-            ('target', 'eta'),
+            ('status', 'eta', 'target', 'id'),
+            # ('id', 'eta', 'status'),
+            # ('id', 'target'),
+            # ('id', 'target', 'status', 'eta'),
+            ('target', 'eta'),              # TaskInfo.is_unique?
             ('target', 'status'),
         )
 
