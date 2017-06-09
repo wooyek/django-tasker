@@ -141,7 +141,7 @@ class TaskQueue(models.Model):
         return empty_run
 
     def get_batch(self, limit, flat=True):
-        return chain([self._get_one_batch(limit, target_id, flat) for target_id in self.targets])
+        return chain(*[self._get_one_batch(limit, target_id, flat) for target_id in self.targets])
 
     def _get_one_batch(self, limit, target_id, flat=True):
         logging.debug("limit: %s on target_id = %s", limit, target_id)
