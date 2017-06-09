@@ -214,8 +214,9 @@ class TaskInfo(models.Model):
 
     class Meta:
         index_together = (
-            ('status', 'eta'),                  # Used by TaskQueue.get_batch
-            ('status', 'ts'),                   # Used by TaskQueue.retry_busy_timeouts
+            ('status', 'eta'),              # Used by TaskQueue.get_batch
+            ('status', 'eta', 'target'),    # Used by TaskQueue.get_batch
+            ('status', 'ts'),               # Used by TaskQueue.retry_busy_timeouts
             ('id', 'eta', 'status'),
             ('id', 'target'),
             ('id', 'target', 'status', 'eta'),
