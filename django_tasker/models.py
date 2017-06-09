@@ -5,6 +5,7 @@ import random
 import signal
 from datetime import datetime, timedelta
 from enum import IntEnum
+from itertools import chain
 from threading import Thread
 from time import sleep
 
@@ -140,8 +141,11 @@ class TaskQueue(models.Model):
         return empty_run
 
     def get_batch(self, limit, flat=True):
-        logging.debug("limit: %s", limit)
-        qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target_id__in=self.targets)
+        return chain([self._get_one_batch(limit, target_id, flat) for target_id in self.targets])
+
+    def _get_one_batch(self, limit, target_id, flat=True):
+        logging.debug("limit: %s on target_id = %s", limit, target_id)
+        qry = TaskInfo.objects.filter(eta__lte=timezone.now(), status__in=(TaskStatus.queued, TaskStatus.retry), target_id=target_id)
         # qry = qry.order_by('eta')  # Ordering seems to introduce performance issues
         if flat:
             qry = qry.values_list('id', flat=True)
