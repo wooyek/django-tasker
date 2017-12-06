@@ -185,7 +185,7 @@ class TaskQueue(models.Model):
 @six.python_2_unicode_compatible
 class TaskTarget(models.Model):
     name = models.CharField(max_length=100, unique=True)
-    queue = models.ForeignKey(TaskQueue)
+    queue = models.ForeignKey(TaskQueue, on_delete=models.CASCADE)
     max_retries = models.PositiveSmallIntegerField(default=5)
 
     def __str__(self):
@@ -210,7 +210,7 @@ class TaskInfo(models.Model):
     ts = models.DateTimeField(auto_now=True, db_index=True)
     retry_count = models.PositiveSmallIntegerField(default=0, db_index=True)
     eta = models.DateTimeField(null=True, blank=True, db_index=True)
-    target = models.ForeignKey(TaskTarget, db_index=True)
+    target = models.ForeignKey(TaskTarget, db_index=True, on_delete=models.CASCADE)
     payload = models.CharField(max_length=300, null=True, blank=True)
     status = models.IntegerField(default=TaskStatus.created, choices=TaskStatus.choices(), db_index=True)
     status_message = models.TextField(default=None, blank=None, null=True)
