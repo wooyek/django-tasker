@@ -1,5 +1,5 @@
 django-tasker
-==================
+=============
 
 Dead simple async task queue. Stores tasks in database.
 No overhead infrastructure required just for throwing something off process.

@@ -5,7 +5,13 @@ import sys
 import os
 import uuid
 from setuptools import setup, find_packages
-from pip.req import parse_requirements
+
+try:  # for pip >= 10
+    # noinspection PyProtectedMember,PyPackageRequirements
+    from pip._internal.req import parse_requirements
+except ImportError:  # for pip <= 9.0.3
+    # noinspection PyPackageRequirements
+    from pip.req import parse_requirements
 
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 
