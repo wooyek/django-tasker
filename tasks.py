@@ -68,6 +68,7 @@ def sync(ctx):
     ctx.run("git checkout master")
     ctx.run("git merge develop --verbose")
 
+
 @task(sync, bump, upload_pypi)
 def release(ctx):
     ctx.run("git checkout develop")
