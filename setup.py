@@ -30,7 +30,7 @@ install_requires = requirements(os.path.join(os.path.dirname(__file__), "require
 with io.open("README.rst", encoding="UTF-8") as readme:
     long_description = readme.read()
 
-version = "0.2.59"
+version = "0.2.60"
 
 setup_kwargs = {
     'name': "django-tasker",
