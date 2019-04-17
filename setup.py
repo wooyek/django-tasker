@@ -15,14 +15,18 @@ except ImportError:  # for pip <= 9.0.3
 
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 
-install_requires = parse_requirements(
-    os.path.join(os.path.dirname(__file__), "requirements.txt"),
-    session=uuid.uuid1()
-)
-tests_require = parse_requirements(
-    os.path.join(os.path.dirname(__file__), "requirements-dev.txt"),
-    session=uuid.uuid1()
-)
+
+def requirements(path):
+    items = parse_requirements(path, session=uuid.uuid1())
+    items = [";".join((str(r.req), str(r.markers))) if r.markers else str(r.req) for r in items]
+    import pprint
+    pprint.pprint(items)
+    return items
+
+
+tests_require = requirements(os.path.join(os.path.dirname(__file__), "requirements-dev.txt"))
+install_requires = requirements(os.path.join(os.path.dirname(__file__), "requirements.txt"))
+
 with io.open("README.rst", encoding="UTF-8") as readme:
     long_description = readme.read()
 
@@ -33,8 +37,8 @@ setup_kwargs = {
     'version': version,
     'packages': find_packages(),
     # 'packages': ['django_tasker'],
-    'install_requires': [str(r.req) for r in install_requires],
-    'tests_require': [str(r.req) for r in tests_require],
+    'install_requires': install_requires,
+    'tests_require': tests_require,
     'author': "Janusz Skonieczny",
     'author_email': "js+pypi@bravelabs.pl",
     'description': "Queening and storing email backed for django",
